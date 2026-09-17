@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/* Ensure smooth scrolling and visible clean scrollbar for chat viewport */
+.chat-scroll-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+.chat-scroll-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+.chat-scroll-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scroll-viewport::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.45);
+  border-radius: 9999px;
+}
+.chat-scroll-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.75);
+}
+

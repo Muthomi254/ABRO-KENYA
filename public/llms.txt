@@ -1,0 +1,7 @@
+# ABRO Product Cross-Reference Agent
+> A comprehensive, full-stack search and cross-reference engine built to match competitor automotive, chemical, and hardware products with their exact ABRO equivalents.
+
+## Core Capabilities
+- **Competitor Mapping:** Analyzes requested competitor parts or chemicals (e.g., Permatex, Loctite, WD-40) and translates their application to find the matching ABRO product.
+- **Verified Product List:** Dynamically queries product names and SKUs grounded explicitly in the data from "Copy of ABRO NEW PRICE June 2026.xlsx".
+- **Dynamic Image Pathing:** Automatically predicts and retrieves direct asset URLs via canonical CDN structures using slug conversion.

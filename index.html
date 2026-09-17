@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
+    <title>ABRO Product Cross-Reference Tool | Find ABRO Equivalents</title>
+    <meta name="description" content="Use our automated AI agent to instantly match competitor products from Loctite, Permatex, and WD-40 with authentic ABRO alternatives from the June 2026 catalog.">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "ABRO Product Cross-Reference Tool",
+      "description": "An interactive AI-powered compatibility tool to find ABRO alternatives for competitor automotive, chemical, and adhesive products using the June 2026 product catalog.",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "All"
+    }
+    </script>
+    <script>
+      // Gracefully catch and swallow benign Vite-specific WebSocket / HMR connection errors and cross-origin "Script error" in the sandbox environment
+      window.onerror = function(message, source, lineno, colno, error) {
+        const errorMsg = String(message || '');
+        if (
+          !errorMsg || 
+          errorMsg.toLowerCase().includes('script error') || 
+          errorMsg.toLowerCase().includes('websocket') || 
+          errorMsg.toLowerCase().includes('vite')
+        ) {
+          console.debug('[window.onerror Swallowed]:', errorMsg || 'Script error');
+          return true; // Suppresses error in browser
+        }
+      };
+
+      window.addEventListener('unhandledrejection', function(event) {
+        const errorMsg = event.reason?.message || String(event.reason || '');
+        if (
+          errorMsg.toLowerCase().includes('websocket') || 
+          errorMsg.toLowerCase().includes('vite') ||
+          errorMsg.toLowerCase().includes('script error')
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          console.debug('[Vite Sandbox Warning Swallowed]:', errorMsg);
+        }
+      });
+
+      window.addEventListener('error', function(event) {
+        const errorMsg = event.message || '';
+        if (
+          !errorMsg || 
+          errorMsg.toLowerCase().includes('script error') || 
+          errorMsg.toLowerCase().includes('websocket') || 
+          errorMsg.toLowerCase().includes('vite')
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          console.debug('[Vite Sandbox Error Swallowed]:', errorMsg || 'Script error');
+        }
+      }, true);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

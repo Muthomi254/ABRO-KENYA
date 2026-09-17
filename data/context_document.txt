@@ -1,0 +1,186 @@
+ABRO Kenya products are formulated in the USA and distributed exclusively by Statpack Industries Ltd across Kenya and East Africa.
+- Minimum Order Quantity (MOQ): Strictly 10 Cartons (no loose pieces are sold; strictly 10 CTN wholesale minimum purchase).
+- Pricing & VAT Structure: Prices are quoted in Kenyan Shillings (KES) both Exclusive of 16% VAT (+16% VAT) and Inclusive of 16% VAT. Quotations must state piece reference, single carton price, and 10-carton MOQ total.
+- Delivery : Free delivery within Nairobi, Kiambu, Thika.
+- Upcountry : Delivery is handled in a case by case  basis.
+- Authenticity & Anti-Counterfeit Protection: Every genuine ABRO product imported by Statpack Industries Ltd bears an authentic KEBS (Kenya Bureau of Standards) Import Standardization Mark hologram sticker with verifiable serial numbers. Genuine packaging features crisp embossed logos, factory lot codes, and tamper-evident seals. Counterfeit warnings apply to unauthorized roadside vendors.
+- Official Wholesale Orders: Send inquiries to orders@statpack.co.ke or visit Statpack Industries Ltd Head Office, North Airport Road, Embakasi, P.O. Box 22015 - 00400, Nairobi, Kenya. Branches in Mombasa (Transocean Building, Moi Avenue), Kampala Uganda, and Dar es Salaam Tanzania.
+
+ABRO Kenya products are formulated in the USA and distributed locally. Note that we do NOT sell less than 1 Carton (no loose pieces are sold). Prices are shown in Kenyan Shillings (KES) as both Exclusive of VAT (+16% VAT) and Inclusive of 16% VAT. Delivery : Free delivery within Nairobi, Kiambu, Thika. Upcountry : Delivery is handled in a case by case  basis. Wholesale contract requests can be sent to orders@statpack.co.ke. Ensure customers always wear appropriate safety goggles and work in well-ventilated areas when using sealants and aerosol paints.
+
+# AI AGENT KNOWLEDGE BASE & REFERENCE GUIDE: ABRO PRODUCT CATALOG
+
+## 1. IDENTITY & OBJECTIVE
+You are an expert AI sourcing agent specialized in the ABRO product catalog. Your objective is to assist users by retrieving accurate product descriptions, specifications, and image assets. You must navigate between official, consolidated brand pages and long-term alternative distribution databases to resolve item variants.
+
+## 2. RECONCILIATION & MATCHING LOGIC
+*   **Variant Aggregation:** Official ABRO architecture consolidates product variations (different sizes, colors, or scents) into a single "parent" URL. When a user asks for a specific variant (e.g., "Red Duct Tape"), route them to the parent URL but use the Alternative Platform source for variant-specific descriptions and images.
+*   **Legacy/Accessory Handling (N/A):** Items marked as "N/A" under the Primary ABRO URL are legacy formulations, regional exclusives, or auxiliary hardware tools. For these items, you must exclusively rely on the Alternative Long-Term Platforms for data retrieval.
+
+---
+
+## 3. MASTER REFERENCE REGISTRY
+
+### Group A: Chemical Adhesives, Gasket Makers & Sealants
+Use these references for structural fixes, RTV silicone lines, and engine threadlocks.
+
+| Product Name | Primary ABRO URL (Parent/Direct) | Alternative Platforms (Images & Specs) |
+| :--- | :--- | :--- |
+| **Abro steel - carded epoxy putty** | https://abro.com/product/abro-steel/ | Walmart Automotive / Hardware Express Catalogs |
+| **Abro steel adhesive tube** | https://abro.com/product/abro-steel/| eBay Motors / Global Trade Supply Networks |
+| **Acrylic sealant 600 - black** | https://abro.com/product/acrylic-latex-sealant-600/ | Architectural & Construction Material Directories |
+| **Acrylic sealant 600 - white** | https://abro.com/product/acrylic-latex-sealant-600/ | Hardware Distribution Networks |
+| **Epoxy clear 1/2 oz. Kwik-set** | https://abro.com/product-category/repair-adhesives/ | Industrial Adhesive Reference Directories |
+| **Epoxy clear syringe** | https://abro.com/product-category/repair-adhesives/ | Global Repair Parts Registers |
+| **Epoxy steel adhesive tube** | https://abro.com/product-category/repair-adhesives/ | Structural Hardware Trade Catalogs |
+| **Gasket maker black** | https://abro.com/product/rtv-silicone-gasket-maker/ | Professional Gasket Supply Databases |
+| **Gasket maker blue** | https://abro.com/product/rtv-silicone-gasket-maker/ | Motor Overhaul Component Centers |
+| **Gasket maker clear** | https://abro.com/product/rtv-silicone-gasket-maker-clear/ | Amazon Mechanical Adhesive Center |
+| **Gasket maker copper high temp** | https://abro.com/product/ultra-plus-copper-rtv-silicone-gasket-maker/ | Turbo & Exhaust Mechanics Repositories |
+| **Gasket Maker Grey 1.5oz.(42.5g)** | https://abro.com/product/grey-999-rtv-silicone-gasket-maker/ | High-Performance Japanese Engine Builders Indexes |
+| **Gasket Maker Grey 999 Spray** | https://abro.com/product/grey-999-rtv-silicone-gasket-maker/ | OEM Gasket Compound Directories |
+| **Gasket maker grey 999** | https://abro.com/product/grey-999-rtv-silicone-gasket-maker/ | Professional Powertrain Parts Networks |
+| **Gasket maker red** | https://abro.com/product/red-rtv-silicone-gasket-maker/ | High-Temperature Sealant Registries |
+| **Gasket shellac** | https://abro.com/product/eagle-head-gasket-shellac/ | Vintage & Heavy Duty Engine Registries |
+| **Insta mix epoxy plastic** | https://abro.com/product-category/repair-adhesives/ | Plastic Welding Trade Directories |
+| **Insta Mix Epoxy quick set** | https://abro.com/product-category/repair-adhesives/ | Fast-Curing Chemical Indexes |
+| **Rear view mirror adhesive** | N/A | Auto Glass Replacement Trade Warehouses |
+| **Silicon gasket remover** | https://abro.com/product/gasket-remover/ | Chemical Solvent Trade Directories |
+| **Silicon Sealant 310ml (All Colors)** | https://abro.com/product/rtv-silicone-sealant-1200/ | Architectural Glazing Structural Registries (ABRO 1200 Class) |
+| **Silicon Sealant 85gm (Black/Clear/White)** | https://abro.com/product/rtv-silicone-gasket-maker/ | Amazon Consumer Mechanical Hardware Hub |
+| **Spray adhesive** | https://abro.com/product/spray-adhesive/ | Trim & Fabric Specialty Supply Catalogs |
+| **Structural silicon sealant 310ml black** | N/A | Curtain Wall & Window Glazing Inventories |
+| **Super glue** | https://abro.com/product/super-glue/ | General Consumer Adhesives Registers |
+| **Thread lock blue** | https://abro.com/product/threadlok-blue/ | Medium-Strength Fastener Supply Catalogs |
+| **Thread lock red (All Gel/Permanent types)** | https://abro.com/product/threadlok-red/ | Structural High-Vibration Fastener Repositories |
+| **Trim adhesive** | N/A | Auto Weatherstrip Mechanical Repositories |
+| **Ultra Plus Copper Gasket Spray** | https://abro.com/product/ultra-plus-copper-gasket-spray/ | Performance Motor Gasket Builders Repositories |
+
+### Group B: Fuel Additives, Treatments & Engine Fluids
+Use these references for internal mechanical servicing, cleaning, and performance optimization.
+
+| Product Name | Primary ABRO URL (Parent/Direct) | Alternative Platforms (Images & Specs) |
+| :--- | :--- | :--- |
+| **Automatic transmission fluid Dexron iii** | https://abro.com/product/automatic-transmission-conditioner/ | Lubricant Trade Registries / eBay Automotive |
+| **Automatic transmission fluid premium** | https://abro.com/product/transmission-fluid-cvt/ | Fluid Mechanics Parts Index |
+| **Diesel fuel treatment** | https://abro.com/product/diesel-fuel-treatment/ | Fleet Maintenance Distribution Centers |
+| **Diesel injector cleaner** | https://abro.com/product/diesel-injector-cleaner/ | Amazon Engine Diagnostics Hub |
+| **Diesel injector cleaner 946ml** | https://abro.com/product/diesel-injector-cleaner/ | Heavy Truck Parts Indexes |
+| **Diesel system cleaner** | https://abro.com/product/diesel-system-cleaner/ | Diesel Mechanics Supply Networks |
+| **Engine oil stop leak** | https://abro.com/product/engine-oil-stop-leak/ | Amazon / AutoZone Automotive Care |
+| **Fuel injector cleaner** | https://abro.com/product/fuel-injector-cleaner/ | Walmart Auto Additive Aisles |
+| **Fuel system cleaner** | https://abro.com/product/fuel-system-cleaner/ | Amazon Fuel Additives Division |
+| **Gasoline treatment** | https://abro.com/product/gasoline-treatment/ | Retail Fuel Treatment Networks |
+| **Gear oil treatment** | https://abro.com/product/gear-oil-treatment/ | Heavy Machinery Transmission Repositories |
+| **Motor Flush (15 oz.) 443ml** | https://abro.com/product/motor-flush/ | eBay Motors Internal Mechanics Engine Index |
+| **Motor oil (10w-40, 15w-40, SAE 20w-50, 40, 50)** | https://abro.com/product-category/lubricants-motor-oil/ | Global Engine Lubricant Trade Directories |
+| **Motor oil treatment - premium / Regular** | https://abro.com/product/premium-oil-treatment/ | AIPL Marketing Oil Additive Database / Auto Performance Centers |
+| **Motor oil two stroke (tc-w3 / Regular)** | https://abro.com/product/2-cycle-engine-oil/ | Marine, Small Engine & Outdoor Power Tool Catalogs |
+| **Octane booster** | https://abro.com/product/octane-booster/ | Amazon Fuel Performance Aisle |
+| **Power steering fluid** | https://abro.com/product/power-steering-fluid/ | Hydraulic Power Steering Part Warehouses |
+| **Smoke Stop 354ml** | https://abro.com/product/smoke-stop/ | Anti-Smoking Oil Treatment Warehouses |
+| **Smooth100 premium engine treatment** | N/A | High-Performance Friction Modifier Catalogs |
+| **Abro Platinum Oil Treatment** | https://abro.com/product/premium-oil-treatment/ | Advanced Performance Lubricant Warehouses |
+
+### Group C: Aerosols, Degreasers, Cleaners & Performance Sprays
+Use these references for bench cleaning, mechanical troubleshooting, and component prep.
+
+| Product Name | Primary ABRO URL (Parent/Direct) | Alternative Platforms (Images & Specs) |
+| :--- | :--- | :--- |
+| **A/c deodorizer lemon scent** | https://abro.com/product/a-c-deodorizer/ | Mega Hardware / Regional E-Commerce |
+| **AB80 Spray Lubricant (210ml / 400ml)** | https://abro.com/product/ab-80-spray-lubricant-2/ | Amazon Brand Store / Global Industrial Suppliers / eBay Motors |
+| **Air cleaner** | N/A | eBay Motors Variant Index |
+| **Battery terminal cleaner** | https://abro.com/product/battery-terminal-cleaner/ | Amazon Automotive Parts Store |
+| **Battery terminal protector** | https://abro.com/product/battery-terminal-protector/ | AIPL Marketing Global Database |
+| **Belt dressing and conditioner** | https://abro.com/product/belt-dressing-conditioner/ | AutoZone / Advance Auto Parts Archives |
+| **Brake & brake parts cleaner non-chlorinated**| https://abro.com/product/brake-brake-parts-cleaner-2/ | Global Safety Clean Supply Catalog |
+| **Brake cleaner** | https://abro.com/product/brake-brake-parts-cleaner-2/ | Amazon Brand Center |
+| **Carb & choke cleaner (20% more / Small)** | https://abro.com/product/carb-choke-cleaner/ | Amazon / Auto Mechanics Fuel System Networks |
+| **Electronic contact cleaner** | https://abro.com/product/electronic-contact-cleaner/ | Mega Hardware Logistics Catalog |
+| **Engine degreaser** | https://abro.com/product/heavy-duty-engine-degreaser/ | Commercial Engine Clean Warehouses |
+| **Foaming engine degreaser** | https://abro.com/product/foaming-engine-degreaser/ | eBay Motors Fuel & Cleaner Stores |
+| **Foaming insulation sealant** | https://abro.com/product/foam-insulation-sealant/ | DIY Construction Supply Depots |
+| **Grinding paste** | https://abro.com/product/grinding-paste/ | Valve Lapping & Precision Engine Shops |
+| **Lube** | N/A | General Lubrication Sourcing Directories |
+| **Paint remover** | https://abro.com/product/paint-remover/ | Mega Hardware Industrial Chemical Section |
+| **Power degreaser** | https://abro.com/product/heavy-duty-power-degreaser/ | Industrial Degreasing Supply Registers |
+| **Spray Paint (All Master Colors/Variations)** | https://abro.com/product/abro-high-quality-spray-paints-2/ | Architectural & Aerosol Paint Directories (Includes Crackle/Stone) |
+| **Spray undercoating** | https://abro.com/product/as-201-spray-undercoating/ | Underbody Rust Protection Warehouses |
+| **Starting fluid** | https://abro.com/product/starting-fluid/ | Cold-Weather Equipment Supply Repositories |
+| **Sticker remover** | N/A | Adhesive Solvent Retail Networks |
+| **Super heavy duty industrial engine degrs** | https://abro.com/product/super-heavy-duty-industrial-strength-engine-degreaser/ | Commercial Plant & Rig Cleanser Repositories |
+| **Premium Spray Lubricant (5oz / 10oz)** | https://abro.com/product/ab-80-spray-lubricant-2/ | Amazon Industrial Supply Catalogs |
+| **Foaming Carburetor Tune-Up & Cond.** | https://abro.com/product/foaming-carburetor-tune-up-conditioner/ | Intake & Combustion System Clean Depots |
+
+### Group D: Surface Care, Cosmetics, Air Fresheners & Car Wash
+Use these references for vehicle aesthetics, detailing mediums, and interior ambiance lines.
+
+| Product Name | Primary ABRO URL (Parent/Direct) | Alternative Platforms (Images & Specs) |
+| :--- | :--- | :--- |
+| **1-step wax - n - dry** | https://abro.com/product/1-step-wax-n-dry/ | Amazon / Auto-Care Retail Distribution Hubs |
+| **Air fresheners assorted scents [1x60]** | https://abro.com/product-category/air-fresheners/ | Walmart Household Goods (Organic Blocks 3-Pack Class) |
+| **Air freshener misty assorted** | https://abro.com/product-category/air-fresheners/ | Amazon Automotive Grocers |
+| **Anti-rain clear view** | https://abro.com/product/anti-rain-clear-view/ | Mega Hardware Database |
+| **Auto silicon spray (Strawberry/Lemon/Water)**| https://abro.com/product/silicone-spray-lubricant/ | Specialty Detailing & Car Care Warehouses |
+| **Bug & tar remover** | https://abro.com/product/bug-tar-remover/ | Walmart Auto Care Aisle |
+| **Car wax siliconised / Super Gold Liquid** | https://abro.com/product/super-gold-liquid-car-wax/ | Specialty Auto Polishing Suppliers / eBay Motors |
+| **Car Wax Super Gold Paste 234gm** | https://abro.com/product/super-gold-paste-car-wax/ | Walmart Global / Car Detailing Forums |
+| **Dashboard polish (Cherry/Lemon/Lilac/Etc.)**| https://abro.com/product/scented-dashboard-polish-xl/ | ABRO English Catalog PDF / Global Interior Care Catalogs |
+| **Furniture polish Lemon** | N/A | Household Maintenance Import Catalogs |
+| **Glass cleaner 15 oz** | N/A | Aerosol Packaging Technical Registry (Shining Can Depot) |
+| **Glass cleaner 650ml** | N/A | International Commercial Detailing Inventories |
+| **Headlight restoration polish** | https://abro.com/product/headlight-restoration-polish/ | Amazon Exterior Detail Stores |
+| **Leather and Vinyl Cleaner** | https://abro.com/product/leather-vinyl-cleaner/ | Fine Leather Maintenance Inventories |
+| **Leather conditioner premium abro** | N/A | Auto Upholstery Trade Warehouses |
+| **Leather vinyl cream conditioner** | N/A | Mega Hardware Automotive Index |
+| **Liquid wax premium abro** | https://abro.com/product/premium-carnauba-liquid-wax/ | Carnauba Trade Specialty Directories |
+| **Metal polish** | https://abro.com/product/metal-polish-paste/ | Chrome & Alloy Polishing Specialists |
+| **Polishing compound 10-oz** | N/A | High-Gloss Paint Restoration Registers |
+| **Premium car wash (16 oz. / 32 oz. / 64 oz.)**| https://abro.com/product/premium-car-wash-wax/ | Fleet Vehicle Cleaning Supply Networks |
+| **Protect all (296ml, Lemon variations)** | N/A | Global Protective Vinyl Coating Registries |
+| **Rubbing compound (10 oz / 32 oz)** | N/A | Bodyshop & Fleet Paint Abrasive Compound Registers |
+| **Scratch remover / Premium** | https://abro.com/product/scratch-remover/ | Clear-Coat Paint Repair Networks / AIPL Finishes Catalog |
+| **Tire shine / Wet black extreme 23 oz** | https://abro.com/product/tire-shine/ | Deep-Gloss Rubber Dressing Suppliers / Detail Aisles |
+| **Upholstery fabric painter (All Colors)** | N/A | Specialty Automotive Interior Vinyl Paint Catalogs |
+| **Vent air freshener (All Fragrances)** | https://abro.com/product-category/air-fresheners/ | Impulse Auto Accessory Trade Registries |
+| **Wash-n-glo** | https://abro.com/product/wash-n-glo-car-wash-wax/ | Car Wash Systems Distribution Networks |
+
+### Group E: Cooling Systems, Tapes, Greases & Hardware Accessories
+Use these references for structural body-shop fillers, radiator maintenance, and physical hardware items.
+
+| Product Name | Primary ABRO URL (Parent/Direct) | Alternative Platforms (Images & Specs) |
+| :--- | :--- | :--- |
+| **Aluminum Foil Tape (2 x 40yd / 3 x 40yd)** | N/A | Industrial Tape Supply Co. / Global Sourcing Catalog |
+| **Car body Filler (1 kg. / 4 kg.)** | N/A | Industrial Paint & Body Supply Directories |
+| **Caulking gun / Premium** | N/A | General Hardware & Premium Trade Tool Warehouses |
+| **Chain lube** | https://abro.com/product/chain-lube/ | Powersports & Motorcycle Supply Catalogs |
+| **Chamois Cloth (Large / Small)** | https://abro.com/product/chamois-cloth/ | Detailing Hardware Warehouses (CH-330 & CH-338) |
+| **C.v joint grease** | https://abro.com/product/brake-brake-parts-cleaner-2/ | Drivetrain & Axle Specialty Mechanics Indexes |
+| **Duct Tape (All Colors & Sizes)** | https://abro.com/product/silver-cloth-duct-tape/ | Global Packing & Repair Material Warehouses |
+| **Electrical Tape 19mmx10yrds (Green/Red)** | https://abro.com/product/pvc-electrical-tape/ | Electrical Grid Supply & Construction Catalogs |
+| **Exhaust system repair tape / Cement** | N/A | Muffler Systems & High-Temp Chemical Adhesive Directories |
+| **Fire Extinguisher 400ml** | N/A | Vehicle Safety Equipment Distributors |
+| **Graphite shower Oil** | https://abro.com/product/heavy-duty-power-degreaser/ | Heavy-Duty Industrial Lubricant Standards |
+| **Lithium grease (White)** | https://abro.com/product/white-lithium-grease/ | Automotive & Hinge Supply Centers |
+| **Lithium grease (Super HD/Synth/Cartridge)**| https://abro.com/product-category/greases/ | Industrial Bearing Lubricant Registers |
+| **Lithium grease (Dark blue/Light blue/Red)**| https://abro.com/product-category/greases/ | Chassis & Wheel Bearing Product Catalogs |
+| **Micro fiber mitt (Chenille / Terry)** | https://abro.com/product/microfiber-mitt-chenille/ | Amazon Professional Car Wash Network / Textile Database |
+| **Qlty pvc electrical tape blac19mmx10m** | https://abro.com/product/pvc-electrical-tape/ | Electrical shadow boxes / Grid Installation Components |
+| **Quick fix tire inflator w/7"** | https://abro.com/product/quick-fix-tire-inflator/| Auto1 Platform Hub / Jumia E-Commerce Portal |
+| **RADIATOR COOLANT (All Sizes, Colors & Trop)**| https://abro.com/product/radiator-coolant/ | Engine Cooling Components Trade Registers |
+| **Radiator flush** | https://abro.com/product/radiator-flush/ | Professional Cooling Maintenance Centers |
+| **Radiator rust inhibitor** | https://abro.com/product/radiator-rust-inhibitor-anti-freeze-coolant-extender/ | Anti-Corrosive Fluid Science Directories |
+| **Roof tape (4" 6pcs / 6" 4pcs)** | https://abro.com/product/peel-seal-roof-tape-flashing-tape/ | Waterproofing & Roofing Supply / Flashing Directories |
+| **Statpack aluminum foil tape** | N/A | HVAC Sheet Metal Specialty Registers |
+| **Stop leak (Liquid / Powder)** | https://abro.com/product/liquid-radiator-stop-leak/ | Radiator Emergency Sealers / Heavy Duty Metallic Sealers |
+| **ABRO TEFLON TAPE (0.5 & 0.75 Dimensions)** | https://abro.com/product/ptfe-thread-seal-tape-light-blue-for-water-pipes/ | Plumbing Pipe & Thread Sealant Networks |
+| **Wheel cleaner 32 oz. / Wheel protector** | N/A | Brake Dust & Alloy Protective Coating Specialty Indexes |
+| **Wind shield washer concentrate** | https://abro.com/product/bug-away-windshield-washer-fluid-concentrate/ | AIPL Windshield Wash Platform Index |
+| **Wind shield washer tablets** | N/A | Compact Solid Washer Fluid Importers |
+| **Wind shield washer cleaner & antifreeze** | https://abro.com/product/bug-away-windshield-washer-fluid-concentrate/ | Winterization Fluid Trade Registers |
+
+---
+
+## 4. AGENT UTILITY COMMANDS (PROMPT TRIGGERS)
+*   `IF USER_REQUEST == "Product Image"`: Check the *Primary ABRO URL* first. If missing or generic, scrap the corresponding listing from the *Alternative Platforms* column to fetch standalone e-commerce imagery.
+*   `IF USER_REQUEST == "Technical Description"`: Query the primary URL. If the page yields an aggregate overview, append specific dimensions or variations from the alternative marketplaces to provide complete technical context.

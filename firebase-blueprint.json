@@ -1,0 +1,69 @@
+{
+  "entities": {
+    "UserPreference": {
+      "title": "User Preference",
+      "description": "User specific configurations and metadata log",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "theme": { "type": "string", "enum": ["light", "dark"] },
+        "selectedModel": { "type": "string" },
+        "lastActive": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "theme"
+      ]
+    },
+    "ChatSession": {
+      "title": "Chat Session",
+      "description": "Individual conversation thread between the user and the assistant",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "An individual text/image chat message in a session",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "model"] },
+        "text": { "type": "string" },
+        "images": { "type": "array" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "sessionId",
+        "userId",
+        "role",
+        "text",
+        "timestamp"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/preference/config": {
+      "schema": "UserPreference",
+      "description": "User specific application configurations"
+    },
+    "/users/{userId}/chats/{sessionId}": {
+      "schema": "ChatSession",
+      "description": "Record collections of separate chat interaction threads"
+    },
+    "/users/{userId}/chats/{sessionId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Individual messages inside a conversation session"
+    }
+  }
+}

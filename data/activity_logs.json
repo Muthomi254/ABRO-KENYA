@@ -1,0 +1,159 @@
+[
+  {
+    "sku": "ABRO-GM-RED",
+    "name": "ABRO Red Gasket Maker (9-AB)",
+    "count": 245
+  },
+  {
+    "sku": "ABRO-SP-BLK",
+    "name": "ABRO Spray Paint (Gloss Black)",
+    "count": 189
+  },
+  {
+    "sku": "ABRO-CC-220",
+    "name": "ABRO Carb & Choke Cleaner",
+    "count": 124
+  },
+  {
+    "sku": "ABRO-EP-STL",
+    "name": "ABRO Epoxy Steel Adhesive (ES-502)",
+    "count": 98
+  },
+  {
+    "sku": "ABRO-WD-PW4",
+    "name": "ABRO Premium Liquid Wax (PW-400)",
+    "count": 76
+  },
+  {
+    "sku": "UNSTOCKED",
+    "name": "Not Stocked Enquiries",
+    "count": 154,
+    "queries": [
+      {
+        "term": "ABRO Spray Paint (Grey Primer)",
+        "count": 42,
+        "timestamp": "2026-09-04T08:26:04.935Z"
+      },
+      {
+        "term": "ABRO Masking Tape 2 Inch (LT-850-2)",
+        "count": 35,
+        "timestamp": "2026-09-03T22:26:03.575Z"
+      },
+      {
+        "term": "ABRO Clear RTV Silicone Adhesive (Small Tube)",
+        "count": 29,
+        "timestamp": "2026-09-03T15:26:01.625Z"
+      },
+      {
+        "term": "ABRO Premium Car Wash & Wax Soap",
+        "count": 21,
+        "timestamp": "2026-09-02T16:25:55.775Z"
+      },
+      {
+        "term": "ABRO Heavy Duty Hand Cleaner (Orange)",
+        "count": 17,
+        "timestamp": "2026-09-01T16:25:43.775Z"
+      },
+      {
+        "term": "how do i exit and end expand the chat ai",
+        "count": 1,
+        "timestamp": "2026-09-13T17:06:45.938Z"
+      },
+      {
+        "term": "Where is Statpack located?",
+        "count": 1,
+        "timestamp": "2026-09-13T17:12:09.396Z"
+      },
+      {
+        "term": "how to exit chat",
+        "count": 1,
+        "timestamp": "2026-09-13T17:12:13.105Z"
+      },
+      {
+        "term": "how do i exit or minimize the chat",
+        "count": 1,
+        "timestamp": "2026-09-13T17:12:32.896Z"
+      },
+      {
+        "term": "Tell me about AB-80 spray lubricant",
+        "count": 1,
+        "timestamp": "2026-09-15T17:34:07.539Z"
+      },
+      {
+        "term": "Where can I buy ABRO products in Nairobi?",
+        "count": 1,
+        "timestamp": "2026-09-15T17:34:19.806Z"
+      },
+      {
+        "term": "How do I check if my ABRO product is original?",
+        "count": 1,
+        "timestamp": "2026-09-15T17:34:26.378Z"
+      },
+      {
+        "term": "What is the price of ABRO Spray Paint in Kenya?",
+        "count": 1,
+        "timestamp": "2026-09-15T17:54:24.484Z"
+      },
+      {
+        "term": "Hello, what products does ABRO sell?",
+        "count": 1,
+        "timestamp": "2026-09-15T17:55:03.649Z"
+      },
+      {
+        "term": "How to use thsi",
+        "count": 1,
+        "timestamp": "2026-09-16T13:29:55.247Z"
+      },
+      {
+        "term": "What abro product can I use here",
+        "count": 1,
+        "timestamp": "2026-09-16T13:32:06.183Z"
+      },
+      {
+        "term": "Hello! What is ABRO 999?",
+        "count": 1,
+        "timestamp": "2026-09-16T13:36:50.133Z"
+      }
+    ],
+    "monthlyCount": 12,
+    "quarterlyCount": 12
+  },
+  {
+    "sku": "6620-YELLOW",
+    "name": "Duct Tape 2  x 9m - Yellow",
+    "count": 2
+  },
+  {
+    "sku": "WD-473",
+    "name": "1-step wax - n - dry",
+    "count": 4,
+    "monthlyCount": 2,
+    "quarterlyCount": 2
+  },
+  {
+    "sku": "AB-80-400",
+    "name": "AB80 Spray Lubricant - 400ml",
+    "count": 1
+  },
+  {
+    "sku": "11-AB",
+    "name": "Gasket maker red",
+    "count": 3,
+    "monthlyCount": 3,
+    "quarterlyCount": 3
+  },
+  {
+    "sku": "AS-201",
+    "name": "Abro steel - carded epoxy putty",
+    "count": 2,
+    "monthlyCount": 2,
+    "quarterlyCount": 2
+  },
+  {
+    "sku": "9-AB",
+    "name": "Gasket maker grey 999",
+    "count": 1,
+    "monthlyCount": 1,
+    "quarterlyCount": 1
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "name": "ABRO Kenya Customer AI & Product Dashboard",
+  "description": "The official official B2B support portal for ABRO Kenya. Features a specialized KES product catalog (+VAT & inclusive 16% VAT), carton-only shipping limits, and a powerful AI agent to automate customer enquiries.",
+  "requestFramePermissions": ["geolocation", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
