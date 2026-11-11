@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Cartes
 import { Product } from "../types";
 import { calculatePricing, formatKES, getProductImageUrl, getProductDisplayName, compressAndResizeImage } from "../utils";
 import { saveProductImageOverride } from "../productImageStore";
-import { uploadToCloudinary, isCloudinaryUrl } from "../cloudinaryUpload";
+import { uploadToCloudinary, isCloudinaryUrl, optimizeImageForUpload } from "../cloudinaryUpload";
 import ZoomableImage from "./ZoomableImage";
 import DashboardOverview from "./DashboardOverview";
 import CameraCaptureModal from "./CameraCaptureModal";
@@ -55,6 +55,9 @@ export default function ProductManager({
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editSaveError, setEditSaveError] = useState<string | null>(null);
+  const [savedProductId, setSavedProductId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
@@ -147,37 +150,57 @@ export default function ProductManager({
 
   const fileInputAddRef = useRef<HTMLInputElement | null>(null);
   const cameraInputAddRef = useRef<HTMLInputElement | null>(null);
+  const addImagePreviewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => () => {
+    if (addImagePreviewUrlRef.current) {
+      URL.revokeObjectURL(addImagePreviewUrlRef.current);
+    }
+  }, []);
 
   // Common upload handler for Add Product image (camera or folders)
   const processAndUploadAddImage = async (file: File) => {
+    if (isUploadingAddImage) return;
     setIsUploadingAddImage(true);
+    setAddImageCloudinaryStatus("Preparing image...");
     setAddImageCloudinaryError(null);
-    setAddImageCloudinaryStatus(null);
+    if (addImagePreviewUrlRef.current) {
+      URL.revokeObjectURL(addImagePreviewUrlRef.current);
+    }
+    const previewUrl = URL.createObjectURL(file);
+    addImagePreviewUrlRef.current = previewUrl;
+    setNewImageUrl(previewUrl);
 
     try {
-      // Upload to Cloudinary folder "Abro Kenya"
-      const res = await uploadToCloudinary(file, {
-        productSku: newSku || "new-product",
-        folder: "Abro Kenya"
+      const optimizedFile = await optimizeImageForUpload(file);
+      setAddImageCloudinaryStatus(`Uploading optimized image (${Math.max(1, Math.round(optimizedFile.size / 1024))} KB)...`);
+      const res = await uploadToCloudinary(optimizedFile, {
+        productSku: newSku || "new-product"
       });
 
       if (res.success && res.url) {
+        URL.revokeObjectURL(previewUrl);
+        addImagePreviewUrlRef.current = null;
         setNewImageUrl(res.url);
         setAddImageCloudinaryStatus("Stored on Cloudinary");
       } else {
         setAddImageCloudinaryError(res.error || "Cloudinary upload notice");
-        const compressed = await compressAndResizeImage(file, 800, 800, 0.82);
+        const compressed = await compressAndResizeImage(optimizedFile, 800, 800, 0.82);
         if (compressed) {
+          URL.revokeObjectURL(previewUrl);
+          addImagePreviewUrlRef.current = null;
           setNewImageUrl(compressed);
+        } else {
+          URL.revokeObjectURL(previewUrl);
+          addImagePreviewUrlRef.current = null;
+          setNewImageUrl("");
         }
       }
     } catch (err: any) {
+      URL.revokeObjectURL(previewUrl);
+      addImagePreviewUrlRef.current = null;
       setAddImageCloudinaryError(err?.message || "Upload failed");
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewImageUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      setNewImageUrl("");
     } finally {
       setIsUploadingAddImage(false);
     }
@@ -300,7 +323,10 @@ export default function ProductManager({
     });
 
   const handleStartEdit = (p: Product) => {
+    if (isSavingEdit) return;
     setEditingId(p.id);
+    setEditSaveError(null);
+    setSavedProductId(null);
     setEditSku(p.sku);
     setEditName(getProductDisplayName(p));
     setEditCategory(p.category);
@@ -310,19 +336,30 @@ export default function ProductManager({
   };
 
   const handleSaveEdit = async (id: string) => {
-    await onUpdateProduct(id, {
-      sku: editSku,
-      name: editName,
-      category: editCategory,
-      price: Number(editPrice) || 0,
-      specs: editSpecs,
-      usageInstructions: editUsage
-    });
-    setEditingId(null);
+    if (isSavingEdit) return;
+    setIsSavingEdit(true);
+    setEditSaveError(null);
+    try {
+      await onUpdateProduct(id, {
+        sku: editSku,
+        name: editName,
+        category: editCategory,
+        price: Number(editPrice) || 0,
+        specs: editSpecs,
+        usageInstructions: editUsage
+      });
+      setSavedProductId(id);
+      setEditingId(null);
+    } catch (err) {
+      setEditSaveError(err instanceof Error ? err.message : "Could not save product changes.");
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isUploadingAddImage) return;
     if (!newSku || !newName || !newCategory) return;
     if (newImageUrl) {
       await saveProductImageOverride(newSku, newImageUrl);
@@ -1372,7 +1409,7 @@ export default function ProductManager({
                       ? "bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30"
                       : "bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200"
                   }`}
-                  title="Cloudinary Product Storage: muthomi254 (Folder: Abro Kenya)"
+                  title="Cloudinary Product Storage: muthomi254 (Folder: AbroKenya)"
                   id="stock-cloudinary-info-btn"
                 >
                   <Cloud className="w-4 h-4 text-sky-500" />
@@ -1579,14 +1616,13 @@ export default function ProductManager({
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({
                             file: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-                            folder: "Abro Kenya"
                           })
                         });
                         const data = await res.json();
                         if (res.ok && data.success) {
                           setCloudinaryTestResult({
                             success: true,
-                            message: "Connection verified! Uploads to 'Abro Kenya' folder are active and working."
+                            message: "Connection verified! Uploads to the configured Cloudinary folder are active and working."
                           });
                         } else {
                           setCloudinaryTestResult({
@@ -1632,7 +1668,7 @@ export default function ProductManager({
                   </div>
                   <div>
                     <span className="block text-[10px] uppercase text-slate-400">Folder</span>
-                    <strong className="text-slate-700 dark:text-slate-200">Abro Kenya</strong>
+                    <strong className="text-slate-700 dark:text-slate-200">AbroKenya</strong>
                   </div>
                   <div>
                     <span className="block text-[10px] uppercase text-slate-400">API Key</span>
@@ -1694,7 +1730,7 @@ export default function ProductManager({
                       <li>In Cloudinary, go to <strong>Settings</strong> &rarr; <strong>Upload</strong> &rarr; <strong>Upload presets</strong>.</li>
                       <li>Click edit on preset <code>Abro_kenya</code> (or Add upload preset).</li>
                       <li>Change <strong>Signing Mode</strong> from <strong>Signed</strong> to <strong>Unsigned</strong>.</li>
-                      <li>Set Folder to <code>Abro Kenya</code> and click <strong>Save</strong>.</li>
+                      <li>Set Folder to <code>AbroKenya</code> and click <strong>Save</strong>.</li>
                     </ol>
                   </div>
                 </div>
@@ -1737,7 +1773,7 @@ export default function ProductManager({
                     </span>
                   </h3>
                   <p className={`text-[11px] ${theme === "dark" ? "text-slate-400" : "text-slate-500"}`}>
-                    All images uploaded to Cloudinary folder <strong className="font-mono text-sky-400">Abro Kenya</strong>
+                    All images uploaded to Cloudinary folder <strong className="font-mono text-sky-400">AbroKenya</strong>
                   </p>
                 </div>
               </div>
@@ -1820,7 +1856,7 @@ export default function ProductManager({
                             </span>
                           )}
                           <p className="text-[10px] font-mono text-slate-400 truncate mt-1" title={asset.public_id}>
-                            {asset.public_id.replace("Abro Kenya/", "")}
+                            {asset.public_id.split("/").pop()}
                           </p>
                         </div>
 
@@ -2024,7 +2060,7 @@ export default function ProductManager({
                 }`}>
                   <div className="flex items-center gap-2 truncate">
                     <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span className="truncate">Stored on Cloudinary CDN: Folder <strong>Abro Kenya</strong></span>
+                    <span className="truncate">Stored on Cloudinary CDN: Folder <strong>AbroKenya</strong></span>
                   </div>
                   <span className="shrink-0 px-2 py-0.5 rounded bg-emerald-500/20 text-[10px] font-bold uppercase tracking-wider">
                     muthomi254
@@ -2039,7 +2075,7 @@ export default function ProductManager({
                     : "bg-sky-50 border-sky-200 text-sky-800"
                 }`}>
                   <Loader2 className="w-4 h-4 animate-spin text-sky-500 shrink-0" />
-                  <span>Uploading to Cloudinary CDN (Folder: Abro Kenya)...</span>
+                <span aria-live="polite">{addImageCloudinaryStatus || "Preparing image..."}</span>
                 </div>
               )}
 
@@ -2076,7 +2112,7 @@ export default function ProductManager({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <label className={`block text-xs font-bold uppercase tracking-wider ${theme === "dark" ? "text-slate-400" : "text-slate-605"}`}>
-                      Product Image (Cloudinary: Abro Kenya)
+                      Product Image (Cloudinary: AbroKenya)
                     </label>
                     <span className="text-[9px] font-mono text-sky-600 dark:text-sky-400 font-semibold">
                       muthomi254
@@ -2206,7 +2242,7 @@ export default function ProductManager({
                       <span className="text-[10px] text-slate-400">or drag image here</span>
                     </div>
                     <p className={`text-[8px] mt-1 ${theme === "dark" ? "text-slate-500" : "text-slate-450"} font-mono`}>
-                      Stores in Cloudinary: <strong>Abro Kenya</strong>
+                      Stores in Cloudinary: <strong>AbroKenya</strong>
                     </p>
                   </div>
                 </div>
@@ -2217,8 +2253,9 @@ export default function ProductManager({
           <div className={`flex justify-end space-x-3 mt-4 pt-4 border-t ${theme === "dark" ? "border-white/10" : "border-slate-100"}`}>
             <button
               type="button"
+              disabled={isUploadingAddImage}
               onClick={() => setIsAdding(false)}
-              className={`px-4 py-2 rounded-lg text-xs font-bold cursor-pointer border transition-all text-center ${
+              className={`px-4 py-2 rounded-lg text-xs font-bold cursor-pointer border transition-all text-center disabled:opacity-50 disabled:cursor-not-allowed ${
                 theme === "dark" ? "bg-transparent border-white/5 hover:bg-white/10 text-slate-300" : "bg-[#fafcfb] border-slate-200 hover:bg-slate-50 text-slate-700"
               }`}
             >
@@ -2226,11 +2263,12 @@ export default function ProductManager({
             </button>
             <button
               type="submit"
-              className={`px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all border text-center ${
+              disabled={isUploadingAddImage}
+              className={`px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all border text-center disabled:opacity-50 disabled:cursor-not-allowed ${
                 theme === "dark" ? "bg-indigo-500 hover:bg-indigo-400 text-white border-indigo-400/20 shadow-lg shadow-indigo-500/20" : "bg-[#00A859] hover:bg-[#00924d] text-white border-emerald-455 shadow-md shadow-emerald-500/10"
               }`}
             >
-              Save Product
+              {isUploadingAddImage ? "Uploading image..." : "Save Product"}
             </button>
           </div>
         </form>
@@ -2443,7 +2481,12 @@ export default function ProductManager({
                       {isEditing ? (
                         <div className="flex items-center justify-end space-x-2">
                           <button
-                            onClick={() => setEditingId(null)}
+                            type="button"
+                            disabled={isSavingEdit}
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditSaveError(null);
+                            }}
                             className={`px-2 py-1 text-xs font-bold cursor-pointer transition-all ${
                               theme === "dark" ? "text-slate-400 hover:text-slate-205" : "text-slate-500 hover:text-slate-800"
                             }`}
@@ -2451,16 +2494,29 @@ export default function ProductManager({
                             Cancel
                           </button>
                           <button
+                            type="button"
+                            disabled={isSavingEdit}
                             onClick={() => handleSaveEdit(p.id)}
-                            className={`px-3 py-1 rounded text-xs font-bold transition-all cursor-pointer border ${
+                            className={`px-3 py-1 rounded text-xs font-bold transition-all border disabled:opacity-60 disabled:cursor-wait ${
                               theme === "dark" ? "bg-indigo-500 hover:bg-slate-450 text-white border-indigo-400/20" : "bg-[#00A859] hover:bg-[#00924d] text-white border-emerald-455"
                             }`}
                           >
-                            Save
+                            {isSavingEdit ? "Saving..." : "Save"}
                           </button>
+                          {editSaveError && (
+                            <span role="alert" className="max-w-40 text-left text-[10px] font-semibold text-rose-500">
+                              {editSaveError}
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <div className="flex items-center justify-end space-x-2">
+                          {savedProductId === p.id && (
+                            <span role="status" className="flex items-center gap-1 text-[10px] font-bold text-emerald-500">
+                              <Check className="h-3 w-3" />
+                              Saved
+                            </span>
+                          )}
                           <button
                             onClick={() => handleStartEdit(p)}
                             className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border flex items-center space-x-1.5 shadow-sm ${

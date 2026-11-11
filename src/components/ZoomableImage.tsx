@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { ZoomIn, ZoomOut, Edit, X, Save, Copy, Check, RotateCcw, Image, ExternalLink, Cloud, CheckCircle2, AlertCircle, Loader2, Camera, FolderOpen, Upload, ShieldCheck, Truck, Package, Info } from "lucide-react";
 import { compressAndResizeImage, formatKES, calculatePricing } from "../utils";
 import { saveProductImageOverride } from "../productImageStore";
-import { uploadToCloudinary, isCloudinaryUrl } from "../cloudinaryUpload";
+import { uploadToCloudinary, isCloudinaryUrl, optimizeImageForUpload } from "../cloudinaryUpload";
 import CameraCaptureModal from "./CameraCaptureModal";
 import abroLogo from "../assets/images/abro_logo_1780759135632.png";
 
@@ -46,6 +46,7 @@ export default function ZoomableImage({
   const [autoMatchSuccess, setAutoMatchSuccess] = useState(false);
   const [matchDetails, setMatchDetails] = useState<{ method: string; slug: string } | null>(null);
   const [isUploadingCloudinary, setIsUploadingCloudinary] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
   const [cloudinaryNotice, setCloudinaryNotice] = useState<string | null>(null);
   const [cloudinaryUploaded, setCloudinaryUploaded] = useState(false);
   const [showCameraModal, setShowCameraModal] = useState(false);
@@ -95,30 +96,31 @@ export default function ZoomableImage({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadPreviewUrlRef = useRef<string | null>(null);
 
   // Common upload handler for both file selection and camera captures
   const processAndUploadFile = async (file: File) => {
     setIsUploadingCloudinary(true);
+    setUploadProgress("Preparing image...");
     setCloudinaryNotice(null);
     setCloudinaryUploaded(false);
+    const previewUrl = URL.createObjectURL(file);
+    uploadPreviewUrlRef.current = previewUrl;
+    setEditUrl(previewUrl);
 
     try {
-      // Step 1: Upload directly to Cloudinary under folder "Abro Kenya"
-      const res = await uploadToCloudinary(file, {
-        productSku,
-        folder: "Abro Kenya"
+      const optimizedFile = await optimizeImageForUpload(file);
+      setUploadProgress(`Uploading optimized image (${Math.max(1, Math.round(optimizedFile.size / 1024))} KB)...`);
+      const res = await uploadToCloudinary(optimizedFile, {
+        productSku
       });
 
       if (res.success && res.url) {
+        URL.revokeObjectURL(previewUrl);
+        uploadPreviewUrlRef.current = null;
         setEditUrl(res.url);
         setCloudinaryUploaded(true);
         setImgError(false);
-        if (productSku) {
-          await saveProductImageOverride(productSku, res.url);
-        }
-        if (productName) {
-          await saveProductImageOverride(productName, res.url);
-        }
         if (onSaveUrl) {
           try {
             await onSaveUrl(res.url);
@@ -126,33 +128,56 @@ export default function ZoomableImage({
             setTimeout(() => setSaveSuccess(false), 3000);
           } catch (autoErr) {
             console.warn("[ZoomableImage] Auto-save product update warning:", autoErr);
+            const reason = autoErr instanceof Error ? autoErr.message : "Could not save the new product image.";
+            setCloudinaryNotice(`Image uploaded, but not saved to the product: ${reason} Use Save to retry.`);
+            return;
           }
         }
+        if (productSku) {
+          await saveProductImageOverride(productSku, res.url);
+        }
+        if (productName) {
+          await saveProductImageOverride(productName, res.url);
+        }
       } else {
-        // Fallback to local compressed base64 if Cloudinary needs credential review
         setCloudinaryNotice(res.error || "Cloudinary upload notice");
-        const compressed = await compressAndResizeImage(file, 800, 800, 0.82);
+        const compressed = await compressAndResizeImage(optimizedFile, 800, 800, 0.82);
         if (compressed) {
+          URL.revokeObjectURL(previewUrl);
+          uploadPreviewUrlRef.current = null;
           setEditUrl(compressed);
+        } else {
+          URL.revokeObjectURL(previewUrl);
+          uploadPreviewUrlRef.current = null;
+          setEditUrl(src);
         }
       }
     } catch (err: any) {
+      URL.revokeObjectURL(previewUrl);
+      uploadPreviewUrlRef.current = null;
+      setEditUrl(src);
       setCloudinaryNotice(err?.message || "Upload failed");
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setEditUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
     } finally {
       setIsUploadingCloudinary(false);
+      setUploadProgress("");
     }
   };
 
   // Sync state when props change
   useEffect(() => {
+    if (uploadPreviewUrlRef.current) {
+      URL.revokeObjectURL(uploadPreviewUrlRef.current);
+      uploadPreviewUrlRef.current = null;
+    }
     setEditUrl(src);
     setImgError(globalBrokenImages.has(src));
   }, [src]);
+
+  useEffect(() => () => {
+    if (uploadPreviewUrlRef.current) {
+      URL.revokeObjectURL(uploadPreviewUrlRef.current);
+    }
+  }, []);
 
   // Handle ESC key to close lightbox
   useEffect(() => {
@@ -173,19 +198,20 @@ export default function ZoomableImage({
     e.preventDefault();
     if (!onSaveUrl) return;
     setIsSaving(true);
+    setCloudinaryNotice(null);
     try {
+      await onSaveUrl(editUrl);
       if (productSku) {
         await saveProductImageOverride(productSku, editUrl);
       }
       if (productName) {
         await saveProductImageOverride(productName, editUrl);
       }
-      await onSaveUrl(editUrl);
       setSaveSuccess(true);
       setImgError(false);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err: any) {
-      setCloudinaryNotice(err?.message || "Failed to save image URL");
+      setCloudinaryNotice(err?.message ? `Image was not saved: ${err.message}` : "Image was not saved. Check the server connection and try again.");
     } finally {
       setIsSaving(false);
     }
@@ -499,7 +525,7 @@ export default function ZoomableImage({
                         {category || "Genuine ABRO"}
                       </span>
                       <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-600 text-white">
-                        10 CTNS MOQ
+                        1 CTN MIN
                       </span>
                     </div>
 
@@ -547,7 +573,7 @@ export default function ZoomableImage({
                   </div>
                   <div className="space-y-1 text-xs">
                     <p className={`leading-relaxed ${theme === "dark" ? "text-slate-300" : "text-slate-700"}`}>
-                      <strong className="text-slate-900 dark:text-white">Delivery:</strong> Free delivery within Nairobi, Kiambu, Thika.
+                      <strong className="text-slate-900 dark:text-white">Delivery:</strong> Free within Nairobi, Kiambu, and Thika for orders of at least 10 cartons.
                     </p>
                     <p className={`leading-relaxed ${theme === "dark" ? "text-slate-300" : "text-slate-700"}`}>
                       <strong className="text-slate-900 dark:text-white">Upcountry:</strong> Delivery is handled in a case by case basis.
@@ -578,10 +604,10 @@ export default function ZoomableImage({
                 {/* Wholesale Pricing if available */}
                 {price && price > 0 && (() => {
                   const pricing = calculatePricing(price, specs || "");
-                  const mOQCartons = 10;
-                  const mOQTotalIncVat = pricing.ctnIncVat * mOQCartons;
-                  const mOQTotalExVat = pricing.ctnExVat * mOQCartons;
-                  const mOQTotalUnits = pricing.packing * mOQCartons;
+                  const tenCartonOrderQuantity = 10;
+                  const tenCartonOrderTotalIncVat = pricing.ctnIncVat * tenCartonOrderQuantity;
+                  const tenCartonOrderTotalExVat = pricing.ctnExVat * tenCartonOrderQuantity;
+                  const tenCartonOrderTotalUnits = pricing.packing * tenCartonOrderQuantity;
 
                   return (
                     <div className={`p-3.5 rounded-2xl border space-y-2.5 ${
@@ -590,12 +616,12 @@ export default function ZoomableImage({
                         : "bg-emerald-50/70 border-emerald-200 text-emerald-950"
                     }`}>
                       <div className="flex items-center justify-between text-xs border-b border-current/10 pb-1.5">
-                        <span className="font-bold">Piece (Inc 16% VAT):</span>
+                        <span className="font-bold">Piece reference only (Inc 16% VAT):</span>
                         <span className="font-black font-mono text-sm">{formatKES(price)}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-[11px] opacity-90">
                         <div>
-                          <span className="block text-[10px] opacity-75">Piece (Ex VAT):</span>
+                          <span className="block text-[10px] opacity-75">Piece reference (Ex VAT):</span>
                           <span className="font-mono font-bold">{formatKES(pricing.pcExVat)}</span>
                         </div>
                         <div>
@@ -604,7 +630,7 @@ export default function ZoomableImage({
                         </div>
                       </div>
 
-                      {/* 10 CTNS Wholesale Order Total */}
+                      {/* 10-carton order total and free-delivery threshold */}
                       <div className={`p-2.5 rounded-xl border flex flex-col gap-1 ${
                         theme === "dark"
                           ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
@@ -613,15 +639,15 @@ export default function ZoomableImage({
                         <div className="flex items-center justify-between text-xs">
                           <span className="font-black tracking-wide flex items-center gap-1">
                             <Package className="w-3.5 h-3.5 text-emerald-500" />
-                            <span>10 Cartons Wholesale Order (MOQ):</span>
+                            <span>10 Cartons Order Total (free delivery threshold):</span>
                           </span>
                           <span className="font-black font-mono text-sm text-emerald-600 dark:text-emerald-300">
-                            {formatKES(mOQTotalIncVat)}
+                            {formatKES(tenCartonOrderTotalIncVat)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-[10px] opacity-80 pt-1 border-t border-current/10">
-                          <span>Ex VAT: {formatKES(mOQTotalExVat)}</span>
-                          <span className="font-mono font-semibold">{mOQTotalUnits} total units ({pricing.packing} pcs/ctn)</span>
+                          <span>Ex VAT: {formatKES(tenCartonOrderTotalExVat)}</span>
+                          <span className="font-mono font-semibold">{tenCartonOrderTotalUnits} total units ({pricing.packing} pcs/ctn)</span>
                         </div>
                       </div>
                     </div>
@@ -727,7 +753,7 @@ export default function ZoomableImage({
                           ) : (
                             <>
                               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21l3.414-3.414m1.772-1.773L21 9.813A3 3 0 1414.187 3L4.937 12.25a3 3 0 00-.783 1.396l-.837 3.351a.5.5 0 00.613.613l3.351-.837a3 3 0 001.396-.783L14.28 12.28" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21l3.414-3.414m1.772-1.773L21 9.813A3 3 0 0114.187 3L4.937 12.25a3 3 0 00-.783 1.396l-.837 3.351a.5.5 0 00.613.613l3.351-.837a3 3 0 001.396-.783L14.28 12.28" />
                               </svg>
                               <span>Auto-Detect Sourced Image</span>
                             </>
@@ -762,7 +788,7 @@ export default function ZoomableImage({
                             theme === "dark" ? "text-slate-400" : "text-slate-600"
                           }`}>
                             <Cloud className={`w-3.5 h-3.5 ${theme === "dark" ? "text-sky-400" : "text-[#0081c6]"}`} />
-                            <span>Upload to Cloudinary (Abro Kenya)</span>
+                            <span>Upload to Cloudinary (AbroKenya)</span>
                           </label>
                           <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded font-semibold ${
                             theme === "dark" ? "bg-sky-500/10 text-sky-400" : "bg-sky-50 text-sky-700 border border-sky-200"
@@ -780,7 +806,7 @@ export default function ZoomableImage({
                           }`}>
                             <div className="flex items-center gap-1.5 truncate">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                              <span className="truncate">Active on Cloudinary CDN (Folder: Abro Kenya)</span>
+                              <span className="truncate">Active on Cloudinary CDN (Folder: AbroKenya)</span>
                             </div>
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-emerald-500/20 text-[9px] font-bold uppercase tracking-wider">
                               CDN
@@ -795,7 +821,7 @@ export default function ZoomableImage({
                               : "bg-sky-50 border-sky-200 text-sky-800"
                           }`}>
                             <Loader2 className="w-4 h-4 animate-spin text-sky-500 shrink-0" />
-                            <span>Uploading to Cloudinary CDN (Folder: Abro Kenya)...</span>
+                            <span aria-live="polite">{uploadProgress || "Preparing image..."}</span>
                           </div>
                         )}
 
@@ -940,7 +966,7 @@ export default function ZoomableImage({
                               <span className="text-[10px] text-slate-400">or drag & drop here</span>
                             </div>
                             <p className="text-[9px] text-slate-400 font-mono mt-1.5">
-                              Destination: Cloudinary folder <strong>Abro Kenya</strong>
+                              Destination: Cloudinary folder <strong>AbroKenya</strong>
                             </p>
                           </div>
                         </div>
@@ -950,7 +976,7 @@ export default function ZoomableImage({
                     <div className="flex gap-2">
                       <button
                         type="submit"
-                        disabled={isSaving}
+                        disabled={isSaving || isUploadingCloudinary}
                         className={`flex-1 font-bold text-xs py-2 px-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 border ${
                           theme === "dark"
                             ? "bg-indigo-500 hover:bg-indigo-600 disabled:bg-indigo-500/50 text-white shadow-indigo-500/10 border-indigo-450/20"

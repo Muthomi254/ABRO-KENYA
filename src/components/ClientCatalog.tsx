@@ -57,7 +57,6 @@ function CatalogProductImage({
           decoding="async"
           onError={handleImageError}
           className={`${imageClassName} transform-gpu will-change-transform transition-transform duration-200 ease-out group-hover/img:scale-105 select-none`}
-          referrerPolicy="no-referrer"
         />
       ) : (
         /* Genuine ABRO Product Emblem Fallback Card - Crisp, Branded & Instant */
@@ -251,7 +250,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
       const listStr = items
         .map((p, idx) => `${idx + 1}. ${p.name} (SKU: ${p.sku}) - Category: ${p.category || "General"}`)
         .join("\n");
-      const query = `Habari! I am inquiring about wholesale pricing, stock availability, and technical specs for the following ${items.length} ABRO product${items.length > 1 ? "s" : ""}:\n\n${listStr}\n\nPlease provide wholesale carton rates (strictly 10 Carton MOQ), 16% VAT details, carton packaging counts, and application instructions for Kenya.`;
+      const query = `Habari! I am inquiring about wholesale pricing, stock availability, and technical specs for the following ${items.length} ABRO product${items.length > 1 ? "s" : ""}:\n\n${listStr}\n\nPlease provide wholesale carton rates, 16% VAT details, carton packaging counts, and application instructions for Kenya. The minimum purchase is 1 full carton per product; please also explain that free delivery in Nairobi, Kiambu, and Thika requires 10 or more cartons.`;
       if (onAskAgent) {
         onAskAgent(query);
       } else if (onOpenChat) {
@@ -376,16 +375,21 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
 
   // Filter products matching search queries and categories
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      const matchSearch =
-        (p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.sku || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.specs || "").toLowerCase().includes(searchTerm.toLowerCase());
+    const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
+    return products
+      .filter((p) => {
+        const matchSearch =
+          (p.name || "").toLocaleLowerCase().includes(normalizedSearch) ||
+          (p.sku || "").toLocaleLowerCase().includes(normalizedSearch) ||
+          (p.specs || "").toLocaleLowerCase().includes(normalizedSearch);
 
-      const matchCategory = selectedCategory === "All" || p.category === selectedCategory;
-
-      return matchSearch && matchCategory;
-    });
+        const matchCategory = selectedCategory === "All" || p.category === selectedCategory;
+        return matchSearch && matchCategory;
+      })
+      .sort((a, b) =>
+        (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }) ||
+        (a.sku || "").localeCompare(b.sku || "", undefined, { sensitivity: "base" })
+      );
   }, [products, searchTerm, selectedCategory]);
 
   const toggleExpand = (id: string) => {
@@ -401,7 +405,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
       p.name || "",
       p.category || "",
       p.specs ? p.specs.replace(/"/g, '""') : "N/A",
-      "Strictly 10 Cartons (Minimum Order Requirement)",
+      "1 full carton minimum per product; no loose pieces",
       p.usageInstructions ? p.usageInstructions.replace(/"/g, '""') : "N/A"
     ]);
 
@@ -494,7 +498,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
               </span>
             </div>
             <p className={`text-xs ${theme === "dark" ? "text-slate-400" : "text-slate-500"}`}>
-              Genuine Kenya Stock Directory • Wholesale MOQ: 10 Cartons
+              Genuine Kenya Stock Directory • Minimum order: 1 full carton; no loose pieces
             </p>
           </div>
         </div>
@@ -852,10 +856,10 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                         </span>
                       </div>
 
-                      {/* 10 CTNS MOQ badge on Top-Right */}
+                      {/* Full-carton minimum badge on Top-Right */}
                       <div className="absolute top-3 right-3 z-10">
                         <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-600 text-white shadow-xs">
-                          10 CTNS MOQ
+                          1 CTN MIN
                         </span>
                       </div>
 
@@ -945,7 +949,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                     {/* Right: Primary Action - Ask AI */}
                     {onAskAgent && (
                       <button
-                        onClick={() => onAskAgent(`Can you provide full technical specifications, carton packaging count, wholesale price (10 CTNS MOQ), and application instructions for genuine ${p.name} (SKU: ${p.sku})?`)}
+                        onClick={() => onAskAgent(`Can you provide full technical specifications, carton packaging count, the 1-carton minimum wholesale price, and application instructions for genuine ${p.name} (SKU: ${p.sku})? Please clarify the 10-carton threshold for free delivery in Nairobi, Kiambu, and Thika.`)}
                         className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer shadow-xs shrink-0 ${
                           theme === "dark"
                             ? "bg-gradient-to-r from-[#00609C] to-emerald-600 hover:from-[#0070b8] hover:to-emerald-500 text-white"
@@ -993,7 +997,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                         </div>
                       </div>
 
-                      {/* MOQ Notice */}
+                      {/* Full-carton minimum notice */}
                       <div className={`p-2.5 rounded-xl text-[10px] font-black flex items-start space-x-2 border uppercase tracking-wider ${
                         theme === "dark"
                           ? "bg-rose-950/20 border-rose-500/10 text-rose-300"
@@ -1001,7 +1005,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                       }`}>
                         <Package className="w-4 h-4 shrink-0" />
                         <div>
-                          <span>Strict Wholesale Limit: Minimum order quantity is 10 Cartons.</span>
+                          <span>Full-carton orders only; minimum 1 carton per product. Free delivery in Nairobi, Kiambu, and Thika requires 10 or more cartons.</span>
                         </div>
                       </div>
                     </div>
@@ -1053,7 +1057,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                             {p.category}
                           </span>
                           <span className="text-[9px] font-black uppercase tracking-wider text-rose-600 bg-rose-500/10 px-2 py-0.5 rounded-md">
-                            10 CTNS MOQ
+                            1 CTN MIN
                           </span>
                         </div>
                         <h4 className={`text-base font-bold tracking-tight ${theme === "dark" ? "text-white" : "text-slate-900"}`}>
@@ -1377,7 +1381,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                         <div className="space-y-1">
                           <h5 className="text-[10px] font-black uppercase tracking-wider text-slate-400">Order Information</h5>
                           <p className="text-[10px] font-bold text-rose-500 bg-rose-500/10 max-w-max px-2 py-0.5 rounded uppercase">
-                            10 CTNS Min. Order Limit
+                            1 CTN Minimum; No Loose Pieces
                           </p>
                         </div>
 
@@ -1892,7 +1896,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-rose-600 text-white shadow-xs">
-                      Strict 10 CTNS MOQ
+                      1 CTN MIN
                     </span>
                     <button
                       onClick={() => {
@@ -1924,13 +1928,13 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                   </div>
                 </div>
 
-                {/* Wholesale Pricing & 10 CTNS MOQ Matrix */}
+                {/* Wholesale pricing and 1-carton minimum */}
                 {zoomedProduct.price > 0 && (() => {
                   const pricing = calculatePricing(zoomedProduct.price, zoomedProduct.specs || "");
-                  const mOQCartons = 10;
-                  const mOQTotalIncVat = pricing.ctnIncVat * mOQCartons;
-                  const mOQTotalExVat = pricing.ctnExVat * mOQCartons;
-                  const mOQTotalUnits = pricing.packing * mOQCartons;
+                  const tenCartonOrderQuantity = 10;
+                  const tenCartonOrderTotalIncVat = pricing.ctnIncVat * tenCartonOrderQuantity;
+                  const tenCartonOrderTotalExVat = pricing.ctnExVat * tenCartonOrderQuantity;
+                  const tenCartonOrderTotalUnits = pricing.packing * tenCartonOrderQuantity;
 
                   return (
                     <div className={`p-3.5 rounded-2xl border space-y-2.5 ${
@@ -1940,14 +1944,14 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                     }`}>
                       <div className="flex items-center justify-between text-xs border-b border-current/10 pb-2">
                         <span className="font-bold flex items-center gap-1.5">
-                          <span>Piece (Inc 16% VAT):</span>
+                          <span>Piece reference only (Inc 16% VAT):</span>
                         </span>
                         <span className="font-black font-mono text-sm">{formatKES(zoomedProduct.price)}</span>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 text-[11px] opacity-90">
                         <div>
-                          <span className="block text-[10px] opacity-75">Piece (Ex VAT):</span>
+                          <span className="block text-[10px] opacity-75">Piece reference (Ex VAT):</span>
                           <span className="font-mono font-bold">{formatKES(pricing.pcExVat)}</span>
                         </div>
                         <div>
@@ -1956,7 +1960,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                         </div>
                       </div>
 
-                      {/* Prominent 10 CTNS Wholesale MOQ Total */}
+                      {/* Prominent 10-carton order total */}
                       <div className={`p-2.5 rounded-xl border flex flex-col gap-1 ${
                         theme === "dark"
                           ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
@@ -1965,15 +1969,15 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                         <div className="flex items-center justify-between text-xs">
                           <span className="font-black tracking-wide flex items-center gap-1">
                             <Package className="w-3.5 h-3.5 text-emerald-500" />
-                            <span>10 Cartons Wholesale Order (MOQ):</span>
+                            <span>10 Cartons Order Total (free delivery threshold):</span>
                           </span>
                           <span className="font-black font-mono text-sm text-emerald-600 dark:text-emerald-300">
-                            {formatKES(mOQTotalIncVat)}
+                            {formatKES(tenCartonOrderTotalIncVat)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-[10px] opacity-80 pt-1 border-t border-current/10">
-                          <span>Ex VAT: {formatKES(mOQTotalExVat)}</span>
-                          <span className="font-mono font-semibold">{mOQTotalUnits} total pieces ({pricing.packing} pcs/ctn)</span>
+                          <span>Ex VAT: {formatKES(tenCartonOrderTotalExVat)}</span>
+                          <span className="font-mono font-semibold">{tenCartonOrderTotalUnits} total pieces ({pricing.packing} pcs/ctn)</span>
                         </div>
                       </div>
                     </div>
@@ -1991,7 +1995,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                   <div className="space-y-1.5 text-xs">
                     <div className="flex items-start gap-2">
                       <span className="font-bold shrink-0 text-slate-900 dark:text-white">Delivery:</span>
-                      <span className="text-slate-600 dark:text-slate-300">Free delivery within Nairobi, Kiambu, Thika.</span>
+                      <span className="text-slate-600 dark:text-slate-300">Free delivery within Nairobi, Kiambu, and Thika for orders of at least 10 cartons.</span>
                     </div>
                     <div className="flex items-start gap-2">
                       <span className="font-bold shrink-0 text-slate-900 dark:text-white">Upcountry:</span>
@@ -2069,7 +2073,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                   type="button"
                   onClick={() => {
                     const pricing = calculatePricing(zoomedProduct.price, zoomedProduct.specs || "");
-                    const quoteText = `*ABRO Kenya Wholesale Product Dossier*\n*Product:* ${zoomedProduct.name}\n*SKU:* ${zoomedProduct.sku}\n*Category:* ${zoomedProduct.category}\n*Piece Price (Inc 16% VAT):* ${formatKES(zoomedProduct.price)}\n*Carton Packing:* ${pricing.packing} units/carton (${formatKES(pricing.ctnIncVat)}/ctn Inc VAT)\n*Minimum Order Quantity (MOQ):* 10 Cartons (${pricing.packing * 10} units) = ${formatKES(pricing.ctnIncVat * 10)} Inc VAT\n*Delivery Terms:* Free delivery within Nairobi, Kiambu, Thika. Upcountry delivery handled in a case by case basis.\n*Distributor:* Statpack Industries Ltd, Embakasi Depot, Nairobi\n*Orders & Inquiries:* +254 748 441 470 / orders@statpack.co.ke`;
+                    const quoteText = `*ABRO Kenya Wholesale Product Dossier*\n*Product:* ${zoomedProduct.name}\n*SKU:* ${zoomedProduct.sku}\n*Category:* ${zoomedProduct.category}\n*Piece Price (reference only; not sold separately, incl. 16% VAT):* ${formatKES(zoomedProduct.price)}\n*Carton Packing:* ${pricing.packing} units/carton (${formatKES(pricing.ctnIncVat)}/ctn Inc VAT)\n*Minimum Order Quantity (MOQ):* 1 full carton (${pricing.packing} units) = ${formatKES(pricing.ctnIncVat)} Inc VAT\n*Free Delivery:* Within Nairobi, Kiambu, and Thika for orders of at least 10 cartons. Below 10 cartons, delivery is not free.\n*Upcountry Delivery:* Handled case by case.\n*Distributor:* Statpack Industries Ltd, Embakasi Depot, Nairobi\n*Orders & Inquiries:* +254 748 441 470 / orders@statpack.co.ke`;
                     navigator.clipboard.writeText(quoteText);
                     setCopiedQuote(true);
                     setTimeout(() => setCopiedQuote(false), 2500);

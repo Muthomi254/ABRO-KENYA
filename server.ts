@@ -8,6 +8,7 @@ import dotenv from "dotenv";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import { getProductImageUrl } from "./src/utils";
+import { rankProducts } from "./src/productSearch";
 import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
 import { v2 as cloudinary } from "cloudinary";
@@ -21,6 +22,22 @@ const PORT = 3000;
 // Initialize Firebase Admin SDK for robust server-side Firestore persistence
 let dbFirestore: Firestore | null = null;
 let firestoreConnected = false;
+
+// Product catalogue cache
+const PRODUCTS_CACHE_TTL_MS = 15_000;
+
+let productsCache: {
+  products: any[];
+  expiresAt: number;
+} | null = null;
+
+let productsRefreshPromise: { generation: number; promise: Promise<any[]> } | null = null;
+let productsCacheGeneration = 0;
+
+function invalidateProductsCache() {
+  productsCacheGeneration += 1;
+  productsCache = null;
+}
 
 function handleFirestoreFailure(operation: string, err: any) {
   const errMsg = err?.message || String(err);
@@ -47,15 +64,18 @@ try {
   if (fsSync.existsSync(configPath)) {
     const config = JSON.parse(fsSync.readFileSync(configPath, "utf-8"));
     if (config.projectId) {
-      if (getApps().length === 0) {
-        initializeApp({
-          projectId: config.projectId,
-        });
-      }
-      dbFirestore = getFirestore();
+      const firebaseApp = getApps().length === 0
+        ? initializeApp({ projectId: config.projectId })
+        : getApps()[0];
+
+      const databaseId = config.firestoreDatabaseId || "(default)";
+
+      dbFirestore = getFirestore(firebaseApp, databaseId);
       dbFirestore.settings({ ignoreUndefinedProperties: true });
       firestoreConnected = true;
-      console.log(`[Firebase Admin] Initialized Firestore client config for projectId: ${config.projectId}`);
+      console.log(
+        `[Firebase Admin] Connected to Firestore: ${config.projectId}/${databaseId}`
+      );
     }
   }
 } catch (err: any) {
@@ -77,6 +97,7 @@ const sandboxHelmet = helmet({
     },
   },
   frameguard: false, // Disables X-Frame-Options: SAMEORIGIN to allow preview within AI Studio frame
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" },
 });
@@ -95,6 +116,7 @@ const strictProductionHelmet = helmet({
     },
   },
   frameguard: { action: "sameorigin" }, // Protects standalone production app against clickjacking
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" },
 });
@@ -192,10 +214,10 @@ const DEFAULT_PRODUCTS = [
 ];
 
 const DEFAULT_CONTEXT = `ABRO Kenya products are formulated in the USA and distributed exclusively by Statpack Industries Ltd across Kenya and East Africa.
-- Minimum Order Quantity (MOQ): Strictly 10 Cartons (no loose pieces are sold; strictly 10 CTN wholesale minimum purchase).
-- Pricing & VAT Structure: Prices are quoted in Kenyan Shillings (KES) both Exclusive of 16% VAT (+16% VAT) and Inclusive of 16% VAT. Quotations must state piece reference, single carton price, and 10-carton MOQ total.
-- Delivery : Free delivery within Nairobi, Kiambu, Thika.
-- Upcountry : Delivery is handled in a case by case  basis.
+- Minimum Order Quantity (MOQ): 1 full carton per product; no loose pieces are sold.
+- Pricing & VAT Structure: Prices are quoted in Kenyan Shillings (KES), Exclusive of 16% VAT and Inclusive of 16% VAT. Show piece pricing as reference only, plus the single-carton price and (when useful) a 10-carton order total.
+- Delivery: Free delivery within Nairobi, Kiambu, and Thika for orders of at least 10 cartons. Below 10 cartons, delivery is not free. Upcountry delivery is handled case by case.
+- Upcountry delivery is handled case by case.
 - Authenticity & Anti-Counterfeit Protection: Every genuine ABRO product imported by Statpack Industries Ltd bears an authentic KEBS (Kenya Bureau of Standards) Import Standardization Mark hologram sticker with verifiable serial numbers. Genuine packaging features crisp embossed logos, factory lot codes, and tamper-evident seals. Counterfeit warnings apply to unauthorized roadside vendors.
 - Official Wholesale Orders & Headquarters: Statpack Industries Ltd Head Office is located on North Airport Road, Embakasi, P.O. Box 22015 - 00400, Nairobi, Kenya. Tel: +254 20 251 9326/7, +254 722 852979, +254 748 441 470, +254 703 322 182. Email: info@statpack.co.ke, orders@statpack.co.ke. Website: https://statpack.co.ke/. Branches in Mombasa (Transocean Building, Moi Avenue), Kampala Uganda, and Dar es Salaam Tanzania.`;
 
@@ -553,8 +575,8 @@ function autoEnrichProductImage(p: any): boolean {
   return false;
 }
 
-// Helper to load products
-async function readProducts() {
+// Helper to load products from Firestore or local storage
+async function loadProductsFromStore() {
   if (dbFirestore) {
     try {
       const snapshot = await dbFirestore.collection("products").get();
@@ -699,6 +721,41 @@ async function readProducts() {
   }
 }
 
+// Cached product reader with protection against simultaneous refreshes
+async function readProducts(): Promise<any[]> {
+  const now = Date.now();
+
+  if (productsCache && now < productsCache.expiresAt) {
+    return productsCache.products;
+  }
+
+  const generation = productsCacheGeneration;
+  if (productsRefreshPromise?.generation === generation) {
+    return productsRefreshPromise.promise;
+  }
+
+  let refreshPromise: Promise<any[]>;
+  refreshPromise = loadProductsFromStore()
+    .then((products) => {
+      if (generation === productsCacheGeneration) {
+        productsCache = {
+          products,
+          expiresAt: Date.now() + PRODUCTS_CACHE_TTL_MS
+        };
+      }
+
+      return products;
+    })
+    .finally(() => {
+      if (productsRefreshPromise?.promise === refreshPromise) {
+        productsRefreshPromise = null;
+      }
+    });
+
+  productsRefreshPromise = { generation, promise: refreshPromise };
+  return refreshPromise;
+}
+
 // Helper to write products
 async function writeProducts(products: any[]) {
   if (dbFirestore) {
@@ -717,6 +774,7 @@ async function writeProducts(products: any[]) {
             await dbFirestore.collection("products").doc(doc.id).delete();
           }
         }
+        invalidateProductsCache();
         return;
       }
     } catch (err: any) {
@@ -731,6 +789,7 @@ async function writeProducts(products: any[]) {
     }
   }
   await fs.writeFile(PRODUCTS_FILE, JSON.stringify(products, null, 2), "utf-8");
+  invalidateProductsCache();
 }
 
 // Helper to load context document
@@ -748,10 +807,10 @@ async function readContext() {
         if (text.includes("flat rate of KES 1,000") || text.includes("Flat rate of KES 1,000") || text.includes("Fargo Courier")) {
           text = text.replace(
             /Deliveries within Nairobi are a flat rate of KES 1,000, or free for orders exceeding KES 50,000\. Upcountry shipments are dispatched from Statpack Embakasi depot via designated courier services \(Fargo Courier, G4S, Modern Coast\)\.?/gi,
-            "Delivery : Free delivery within Nairobi, Kiambu, Thika.\n- Upcountry : Delivery is handled in a case by case  basis."
+            "Delivery: Free within Nairobi, Kiambu, and Thika for orders of at least 10 cartons.\n- Upcountry delivery is handled case by case."
           ).replace(
             /Deliveries within Nairobi are a flat rate of KES 1,000, or free for orders exceeding KES 50,000\.?/gi,
-            "Delivery : Free delivery within Nairobi, Kiambu, Thika. Upcountry : Delivery is handled in a case by case  basis."
+            "Delivery: Free within Nairobi, Kiambu, and Thika for orders of at least 10 cartons. Upcountry delivery is handled case by case."
           );
           docRef.set({ text }).catch(() => {});
         }
@@ -775,10 +834,10 @@ async function readContext() {
     if (data.includes("flat rate of KES 1,000") || data.includes("Flat rate of KES 1,000") || data.includes("Fargo Courier")) {
       data = data.replace(
         /Deliveries within Nairobi are a flat rate of KES 1,000, or free for orders exceeding KES 50,000\. Upcountry shipments are dispatched from Statpack Embakasi depot via designated courier services \(Fargo Courier, G4S, Modern Coast\)\.?/gi,
-        "Delivery : Free delivery within Nairobi, Kiambu, Thika.\n- Upcountry : Delivery is handled in a case by case  basis."
+        "Delivery: Free within Nairobi, Kiambu, and Thika for orders of at least 10 cartons.\n- Upcountry delivery is handled case by case."
       ).replace(
         /Deliveries within Nairobi are a flat rate of KES 1,000, or free for orders exceeding KES 50,000\.?/gi,
-        "Delivery : Free delivery within Nairobi, Kiambu, Thika. Upcountry : Delivery is handled in a case by case  basis."
+        "Delivery: Free within Nairobi, Kiambu, and Thika for orders of at least 10 cartons. Upcountry delivery is handled case by case."
       );
       fs.writeFile(CONTEXT_FILE, data, "utf-8").catch(() => {});
     }
@@ -1433,7 +1492,7 @@ app.get("/api/cloudinary/config", (req, res) => {
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "muthomi254";
   const apiKey = process.env.CLOUDINARY_API_KEY || "595797988235321";
   const hasSecret = Boolean(process.env.CLOUDINARY_API_SECRET && process.env.CLOUDINARY_API_SECRET.trim().length > 0);
-  const folder = process.env.CLOUDINARY_FOLDER || "Abro Kenya";
+  const folder = process.env.CLOUDINARY_FOLDER || "AbroKenya";
   const preset = process.env.CLOUDINARY_UPLOAD_PRESET || "Abro_kenya";
 
   res.json({
@@ -1456,7 +1515,7 @@ app.post("/api/cloudinary/upload", async (req, res) => {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "muthomi254";
     const apiKey = process.env.CLOUDINARY_API_KEY || "595797988235321";
     const apiSecret = process.env.CLOUDINARY_API_SECRET || "";
-    const targetFolder = folder || process.env.CLOUDINARY_FOLDER || "Abro Kenya";
+    const targetFolder = folder || process.env.CLOUDINARY_FOLDER || "AbroKenya";
     const preset = upload_preset || process.env.CLOUDINARY_UPLOAD_PRESET || "Abro_kenya";
 
     // Method A: Direct Signed upload via Cloudinary REST API if secret is configured
@@ -1516,10 +1575,9 @@ app.post("/api/cloudinary/upload", async (req, res) => {
     // Method B: Unsigned preset upload via Cloudinary REST API
     const presetsToTry = [
       preset,
-      "Abro Kenya",
       "Abro_kenya",
+      "AbroKenya",
       "abro_kenya",
-      "abro-kenya",
       "ml_default"
     ].filter((p, idx, arr) => Boolean(p) && arr.indexOf(p) === idx);
 
@@ -1608,28 +1666,131 @@ function getCloudinaryClient() {
   return cloudinary;
 }
 
+function getCloudinaryErrorDetails(err: unknown): { message: string; httpCode?: number } {
+  const outer = err && typeof err === "object" ? err as Record<string, unknown> : {};
+  const nested = outer.error && typeof outer.error === "object"
+    ? outer.error as Record<string, unknown>
+    : {};
+  const rawMessage = nested.message ?? outer.message;
+  const message = rawMessage instanceof Error
+    ? rawMessage.message
+    : typeof rawMessage === "string"
+      ? rawMessage
+      : "Cloudinary API request failed without an error message.";
+  const rawHttpCode = nested.http_code ?? outer.http_code;
+  const httpCode = typeof rawHttpCode === "number" ? rawHttpCode : undefined;
+
+  return { message, httpCode };
+}
+
+function formatCloudinaryError(err: unknown): string {
+  const details = getCloudinaryErrorDetails(err);
+  return details.httpCode ? `${details.message} (HTTP ${details.httpCode})` : details.message;
+}
+
+function isManagedCloudinaryImage(imageUrl: string, cloudName: string): boolean {
+  try {
+    const url = new URL(imageUrl);
+    const [urlCloudName] = url.pathname.split("/").filter(Boolean);
+    return url.hostname === "res.cloudinary.com"
+      && ["http:", "https:"].includes(url.protocol)
+      && urlCloudName === cloudName;
+  } catch {
+    return false;
+  }
+}
+
+function getManagedCloudinaryPublicId(imageUrl: string, cloudName: string, targetFolder: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(imageUrl);
+  } catch {
+    return null;
+  }
+
+  if (url.hostname !== "res.cloudinary.com" || !["http:", "https:"].includes(url.protocol)) {
+    return null;
+  }
+
+  let pathSegments: string[];
+  try {
+    pathSegments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return null;
+  }
+
+  if (pathSegments[0] !== cloudName) return null;
+
+  const uploadIndex = pathSegments.findIndex((segment, index) =>
+    segment === "upload" && pathSegments[index - 1] === "image"
+  );
+  if (uploadIndex === -1) return null;
+
+  const allowedFolders = [...new Set([targetFolder, "Abro Kenya"])]
+    .map((folder) => folder.split("/").filter(Boolean))
+    .filter((segments) => segments.length > 0);
+  let assetStartIndex = -1;
+  for (let index = uploadIndex + 1; index < pathSegments.length; index += 1) {
+    const matchingFolder = allowedFolders.find((folder) =>
+      folder.every((segment, offset) => pathSegments[index + offset] === segment)
+    );
+    if (matchingFolder) {
+      assetStartIndex = index;
+      break;
+    }
+  }
+  if (assetStartIndex === -1) return null;
+
+  const assetSegments = pathSegments.slice(assetStartIndex);
+  const fileName = assetSegments[assetSegments.length - 1];
+  if (!fileName) return null;
+  assetSegments[assetSegments.length - 1] = fileName.replace(/\.[^.]+$/, "");
+
+  return assetSegments.join("/");
+}
+
+async function getCloudinaryFolderResources(targetFolder: string) {
+  const c = getCloudinaryClient();
+  const folders = [...new Set([targetFolder])];
+  const uniqueResources = new Map<string, any>();
+  const failures: string[] = [];
+
+  for (const folder of folders) {
+    try {
+      const result = await c.api.resources_by_asset_folder(folder, { max_results: 500 });
+      for (const resource of result.resources || []) {
+        uniqueResources.set(resource.asset_id || resource.public_id, resource);
+      }
+    } catch (err) {
+      failures.push(`'${folder}': ${formatCloudinaryError(err)}`);
+    }
+  }
+
+  if (failures.length === folders.length) {
+    throw new Error(`Could not list Cloudinary asset folders. ${failures.join("; ")}`);
+  }
+
+  if (failures.length > 0) {
+    console.warn(`[Cloudinary Sync] Some folder lookups failed: ${failures.join("; ")}`);
+  }
+
+  return [...uniqueResources.values()];
+}
+
 // Function to automatically sync all assets from Cloudinary folder into product catalog
 async function syncCloudinaryImagesToCatalog() {
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "muthomi254";
   const apiKey = process.env.CLOUDINARY_API_KEY || "595797988235321";
   const apiSecret = process.env.CLOUDINARY_API_SECRET || "";
-  const targetFolder = process.env.CLOUDINARY_FOLDER || "Abro Kenya";
+  const targetFolder = process.env.CLOUDINARY_FOLDER || "AbroKenya";
 
   if (!cloudName || !apiKey || !apiSecret) {
     console.warn("[Cloudinary Sync] Missing credentials, skipping sync.");
     return { success: false, error: "Cloudinary credentials missing" };
   }
 
-  const c = getCloudinaryClient();
-
   try {
-    const res = await c.api.resources({
-      type: "upload",
-      prefix: targetFolder,
-      max_results: 500
-    });
-
-    const resources = res.resources || [];
+    const resources = await getCloudinaryFolderResources(targetFolder);
     console.log(`[Cloudinary Sync] Discovered ${resources.length} assets in '${targetFolder}'.`);
 
     const products = await readProducts();
@@ -1644,7 +1805,7 @@ async function syncCloudinaryImagesToCatalog() {
     const matches: Array<{ sku: string; name: string; url: string; public_id: string; created_at: string }> = [];
 
     for (const r of sorted) {
-      const filename = r.public_id.replace(`${targetFolder}/`, "").replace("Abro Kenya/", "");
+      const filename = r.public_id.split("/").pop() || r.public_id;
       const match = filename.match(/^abro_(.+?)_\d+$/i);
       let candidateSku = match ? match[1] : filename.replace(/^abro_/i, "");
 
@@ -1686,8 +1847,9 @@ async function syncCloudinaryImagesToCatalog() {
       }))
     };
   } catch (err: any) {
-    console.error("[Cloudinary Sync] Failed to sync images:", err.message);
-    return { success: false, error: err.message };
+    const error = formatCloudinaryError(err);
+    console.error("[Cloudinary Sync] Failed to sync images:", error);
+    return { success: false, error };
   }
 }
 
@@ -1707,23 +1869,18 @@ app.get("/api/cloudinary/assets", async (req, res) => {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "muthomi254";
     const apiKey = process.env.CLOUDINARY_API_KEY || "595797988235321";
     const apiSecret = process.env.CLOUDINARY_API_SECRET || "";
-    const targetFolder = process.env.CLOUDINARY_FOLDER || "Abro Kenya";
+    const targetFolder = process.env.CLOUDINARY_FOLDER || "AbroKenya";
 
     if (!cloudName || !apiKey || !apiSecret) {
       return res.status(400).json({ error: "Cloudinary credentials missing." });
     }
 
-    const c = getCloudinaryClient();
-    const result = await c.api.resources({
-      type: "upload",
-      prefix: targetFolder,
-      max_results: 500
-    });
+    const resources = await getCloudinaryFolderResources(targetFolder);
 
     const products = await readProducts();
 
-    const assets = (result.resources || []).map((r: any) => {
-      const filename = r.public_id.replace(`${targetFolder}/`, "").replace("Abro Kenya/", "");
+    const assets = resources.map((r: any) => {
+      const filename = r.public_id.split("/").pop() || r.public_id;
       const match = filename.match(/^abro_(.+?)_\d+$/i);
       const candidateSku = match ? match[1] : filename.replace(/^abro_/i, "");
 
@@ -1752,12 +1909,15 @@ app.get("/api/cloudinary/assets", async (req, res) => {
       assets
     });
   } catch (err: any) {
-    res.status(500).json({ error: "Failed to retrieve Cloudinary assets", details: err.message });
+    res.status(500).json({
+      error: "Failed to retrieve Cloudinary assets",
+      details: formatCloudinaryError(err)
+    });
   }
 });
 
 // 1d. PATCH /api/products/:id/image - Dedicated image update endpoint for instant persistence
-app.patch("/api/products/:id/image", async (req, res) => {
+app.patch("/api/products/:id/image", requireAdmin, async (req, res) => {
   try {
     const id = req.params.id;
     const { imageUrl } = req.body;
@@ -1769,9 +1929,38 @@ app.patch("/api/products/:id/image", async (req, res) => {
     if (idx === -1) {
       return res.status(404).json({ error: `Product ${id} not found` });
     }
+    const previousImageUrl = products[idx].imageUrl;
     products[idx].imageUrl = imageUrl;
     await writeProducts(products);
-    res.json({ success: true, product: products[idx] });
+
+    let cleanupWarning: string | undefined;
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "muthomi254";
+    if (previousImageUrl && previousImageUrl !== imageUrl && isManagedCloudinaryImage(previousImageUrl, cloudName)) {
+      const apiSecret = process.env.CLOUDINARY_API_SECRET || "";
+      const targetFolder = process.env.CLOUDINARY_FOLDER || "AbroKenya";
+      const publicId = getManagedCloudinaryPublicId(previousImageUrl, cloudName, targetFolder);
+
+      if (!apiSecret.trim()) {
+        cleanupWarning = "The new image was saved, but the previous Cloudinary image was not deleted because CLOUDINARY_API_SECRET is not configured.";
+      } else if (!publicId) {
+        cleanupWarning = "The new image was saved, but the previous Cloudinary image could not be identified as an asset in the configured folder.";
+      } else {
+        try {
+          const result = await getCloudinaryClient().uploader.destroy(publicId, { resource_type: "image" });
+          if (result.result !== "ok" && result.result !== "not found") {
+            cleanupWarning = `The new image was saved, but Cloudinary did not delete the previous image (${result.result}).`;
+          }
+        } catch (deleteError) {
+          cleanupWarning = `The new image was saved, but deleting the previous Cloudinary image failed: ${formatCloudinaryError(deleteError)}`;
+        }
+      }
+
+      if (cleanupWarning) {
+        console.warn(`[Cloudinary] Product ${id} image replacement cleanup warning: ${cleanupWarning}`);
+      }
+    }
+
+    res.json({ success: true, product: products[idx], cleanupWarning });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to update product image", details: err.message });
   }
@@ -2321,15 +2510,30 @@ You can easily manage, minimize, or exit the AI Assistant at any time:
   - **Kampala, Uganda:** Plot 140, Sixth Street, Industrial Area (Tel: +256 757 345 228 / +256 709 753 754 | Email: statpack@africaonline.co.ug)
   - **Dar es Salaam, Tanzania:** Hifadhi Business Park, Opposite Ubungo Plaza, Morogoro Road, Ubungo (Tel: +255 733 400 530 / +255 719 343 453 | Email: info@statpack.co.tz)
 * **🚚 Logistics & Deliveries:**
-  - Delivery : Free delivery within Nairobi, Kiambu, Thika.
+  - Free delivery within Nairobi, Kiambu, and Thika applies to orders of at least 10 cartons.
+  - Orders below 10 cartons are not eligible for free delivery.
   - Upcountry : Delivery is handled in a case by case  basis.`;
+  }
+
+  if (/\b(deliver|delivery|shipping|ship|transport|courier|free delivery)\b/i.test(normQuery)) {
+    return `### Delivery Information
+
+* **Free delivery:** Available within Nairobi, Kiambu, and Thika for orders of at least **10 cartons**.
+* **Orders below 10 cartons:** Delivery is not free; contact Statpack for the applicable arrangement.
+* **Upcountry:** Delivery is handled case by case.
+
+There are no loose-piece sales; products are sold by the full carton.`;
+  }
+
+  if (/\b(minimum order|minimum quantity|moq|loose pieces|loose piece|buy (?:a|one) piece|single carton|one carton|1 carton|cartons minimum)\b/i.test(normQuery)) {
+    return `Products are sold by the full carton only; **loose pieces are not sold**. The minimum purchase is **1 full carton per product**. Free delivery within Nairobi, Kiambu, and Thika applies to orders of at least **10 cartons**. Upcountry delivery is handled case by case.`;
   }
 
   // C. Greetings, Politeness & General Chat
   const isGreeting = /^(hi|hello|hey|mambo|sasa|habari|jambo|good\s*morning|good\s*afternoon|good\s*evening|test|can\s*i\s*chat|who\s*are\s*you|help)(\s+.*)?$/i.test(normQuery);
   const mentionsProductKeywords = /gasket|rtv|999|silicone|ab-80|ab80|wd|carb|cleaner|spray|paint|wax|polish|tape|epoxy|glue|coolant|oil|grease|filter|price|quot/i.test(normQuery);
   if (isGreeting && !mentionsProductKeywords) {
-    return `Hello! Welcome to **ABRO Kenya**, distributed exclusively by **Statpack Industries Ltd**.\n\nI am your Technical Sales Specialist and Product Assistant. I am fully ready to assist you with:\n\n* 🔍 **Product Formulations & Specifications:** (Gasket makers, threadlockers, silicone, spray paints, AB-80 lubricant, car care, and tapes)\n* 💰 **Wholesale Quotations & Prices in KES:** (Clear Piece, Carton, and 10-Carton MOQ totals with 16% VAT breakdowns)\n* 🛡️ **Authenticity Verification:** (Inspecting KEBS holograms, bubble weld prints, and packaging lot codes)\n* 📦 **Delivery & Ordering Rules:** (Strictly 10 CTN minimum order quantity; dispatches from Embakasi depot)\n* 📍 **Statpack Office & Depot Info:** (North Airport Road, Embakasi, Nairobi)\n\n*(Tunazungumza pia Kiswahili na Sheng!)* How can I help you today? You can type any product name, SKU, or ask for a price quote!`;
+    return `Hello! Welcome to **ABRO Kenya**, distributed exclusively by **Statpack Industries Ltd**.\n\nI am your Technical Sales Specialist and Product Assistant. I am fully ready to assist you with:\n\n* 🔍 **Product Formulations & Specifications:** (Gasket makers, threadlockers, silicone, spray paints, AB-80 lubricant, car care, and tapes)\n* 💰 **Wholesale Quotations & Prices in KES:** (Piece reference prices, full-carton prices, and 10-carton order totals with 16% VAT breakdowns)\n* 🛡️ **Authenticity Verification:** (Inspecting KEBS holograms, bubble weld prints, and packaging lot codes)\n* 📦 **Ordering:** Full-carton purchases only; minimum 1 carton per product. Free delivery in Nairobi, Kiambu, and Thika for orders of at least 10 cartons.\n* 📍 **Statpack Office & Depot Info:** (North Airport Road, Embakasi, Nairobi)\n\n*(Tunazungumza pia Kiswahili na Sheng!)* How can I help you today? You can type any product name, SKU, or ask for a price quote!`;
   }
   
   let competitorKeyword = "";
@@ -2400,153 +2604,11 @@ You can easily manage, minimize, or exit the AI Assistant at any time:
     functionDescription = "High-pressure aerosol spray to bypass varnish deposits and clean choke plates.";
   }
 
-  // 3. COMPREHENSIVE SEARCH & SCORING OVER THE ENTIRE LOCAL PRODUCTS Stock List
-  const cleanStr = (s: string) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const queryCleanBase = cleanStr(normQuery);
-
-  // Stopwords - ignore filler terms so domain specifics dominate scoring
-  const stopwords = new Set([
-    "what", "product", "products", "can", "be", "used", "use", "using", "for", "general", "purpose",
-    "in", "a", "an", "the", "and", "or", "to", "of", "tell", "me", "about", "is", "are", "which",
-    "best", "recommend", "suitable", "good", "give", "option", "options", "item", "items", "type",
-    "types", "something", "anything", "everything", "application", "applications", "work", "works",
-    "want", "have", "need", "find", "equival", "match", "abro", "kenya", "do", "you", "competitor",
-    "with", "this", "that", "from", "pleas", "help", "how", "where", "show", "get", "buy", "price",
-    "cost", "much", "there", "dtailing"
-  ]);
-
-  const words = normQuery.split(/[^a-zA-Z0-9]+/).filter(w => w.length >= 2 && !stopwords.has(w));
-
-  const scoredProducts = products.map((p: any) => {
-    let score = 0;
-    const name = String(p.name || "");
-    const sku = String(p.sku || "");
-    const specs = String(p.specs || "");
-    const description = String(p.description || "");
-    const usageInstructions = String(p.usageInstructions || "");
-    const cat = String(p.category || "");
-
-    const nameLower = name.toLowerCase();
-    const skuLower = sku.toLowerCase();
-    const specsLower = specs.toLowerCase();
-    const descLower = description.toLowerCase();
-    const usageLower = usageInstructions.toLowerCase();
-    const catLower = cat.toLowerCase();
-
-    const cleanSku = cleanStr(sku);
-
-    // Exact SKU matches
-    if (cleanSku === queryCleanBase) {
-      score += 2000;
-    } else if (cleanSku.length > 2 && queryCleanBase.includes(cleanSku)) {
-      score += 1000;
-    } else if (queryCleanBase.length > 2 && cleanSku.includes(queryCleanBase)) {
-      score += 700;
-    }
-
-    // Name exact/substring match
-    if (nameLower === normQuery) {
-      score += 1200;
-    } else if (nameLower.includes(normQuery) && normQuery.length > 3) {
-      score += 600;
-    } else if (normQuery.includes(nameLower) && nameLower.length > 4) {
-      score += 450;
-    }
-
-    // Domain-Specific Category / Application Intent Boosters
-    if (isDetailingQuery) {
-      if (catLower.includes("interior") || catLower.includes("exterior") || catLower.includes("car care") || catLower.includes("detailing") || catLower.includes("cleaner")) {
-        score += 400;
-      }
-      if (nameLower.includes("wash") || nameLower.includes("polish") || nameLower.includes("wax") || nameLower.includes("dashboard") || nameLower.includes("foam cleaner") || nameLower.includes("carnauba") || nameLower.includes("tyre") || nameLower.includes("leather")) {
-        score += 500;
-      }
-      // Penalize tape and adhesives if detailing was explicitly asked
-      if (catLower.includes("tape") || nameLower.includes("tape") || catLower.includes("sealant")) {
-        score -= 600;
-      }
-    }
-
-    if (isGasketQuery) {
-      if (catLower.includes("gasket") || catLower.includes("sealant") || nameLower.includes("999") || nameLower.includes("rtv") || nameLower.includes("silicone")) {
-        score += 500;
-      }
-      if (catLower.includes("tape") || catLower.includes("interior")) {
-        score -= 400;
-      }
-    }
-
-    if (isLubeQuery) {
-      if (nameLower.includes("ab-80") || nameLower.includes("belt dressing") || catLower.includes("lubricant") || nameLower.includes("penetrating")) {
-        score += 500;
-      }
-      if (catLower.includes("tape")) {
-        score -= 400;
-      }
-    }
-
-    if (isCarbQuery) {
-      if (nameLower.includes("carb") || nameLower.includes("choke") || nameLower.includes("injector") || catLower.includes("fuel")) {
-        score += 600;
-      }
-    }
-
-    if (isPaintQuery) {
-      if (catLower.includes("paint") || nameLower.includes("spray paint") || nameLower.includes("primer")) {
-        score += 500;
-      }
-    }
-
-    if (isTapeQuery) {
-      if (catLower.includes("tape") || nameLower.includes("tape") || nameLower.includes("masking") || nameLower.includes("foil")) {
-        score += 600;
-      }
-    } else {
-      // If user did NOT ask for tape, penalize tape products so tape doesn't mistakenly match general automotive inquiries
-      if (catLower.includes("tape") || nameLower.includes("tape")) {
-        score -= 250;
-      }
-    }
-
-    // Word by word matches
-    words.forEach(word => {
-      const cleanWord = cleanStr(word);
-      if (!cleanWord) return;
-
-      if (cleanSku.includes(cleanWord)) {
-        score += 250;
-      }
-      if (nameLower.includes(word)) {
-        score += 150;
-      }
-      if (catLower.includes(word)) {
-        score += 90;
-      }
-      if (specsLower.includes(word) || descLower.includes(word)) {
-        score += 35;
-      }
-      if (usageLower.includes(word)) {
-        score += 15;
-      }
-    });
-
-    return { product: p, score };
-  });
-
-  // Filter products with positive score and sort descending
-  const filteredAndSorted = scoredProducts
-    .filter(s => s.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  matchedProducts = filteredAndSorted.map(f => f.product);
-
-  // Choose top matched elements (up to 4)
-  let topMatches = matchedProducts.slice(0, 4);
-  let usingCuratedFeatured = false;
-
+  // Rank the whole catalog using the same weighted retrieval used for Gemini grounding.
+  matchedProducts = rankProducts(products, rawQuery, 4).map(({ product }) => product);
+  const topMatches = matchedProducts;
   if (topMatches.length === 0) {
-    usingCuratedFeatured = true;
-    topMatches = products.slice(0, 3);
+    return `I couldn't match **${rawQuery}** directly to a product in our current catalog. Would you like me to recommend similar ABRO products from our catalog?`;
   }
 
   const isCompetitorInquiry = /loctite|permatex|wd-40|wd40|wd\s+40|3m|turtle\s+wax|meguiar|competitor|competing|versus|vs|equivalent|match/i.test(userMessage);
@@ -2561,11 +2623,7 @@ You can easily manage, minimize, or exit the AI Assistant at any time:
     docOutput += `\n---\n`;
   }
 
-  if (usingCuratedFeatured) {
-    docOutput += `No direct keyword match was found in our stock lines, but here are some of our **popular featured products** from our official catalog for your reference:\n\n`;
-  } else {
-    docOutput += `Based on your query, here is the official matching product information from the catalog:\n\n`;
-  }
+  docOutput += `Based on your query, here is the official matching product information from the catalog:\n\n`;
 
   if (topMatches.length > 0) {
     const primaryProd = topMatches[0];
@@ -2582,7 +2640,7 @@ You can easily manage, minimize, or exit the AI Assistant at any time:
       docOutput += `![${primaryProd.name}](${imgUrl})\n\n`;
     }
 
-    if (isCompetitorInquiry && !usingCuratedFeatured) {
+    if (isCompetitorInquiry) {
       docOutput += `*   **Competitor Connection:** ${competitorKeyword || primaryProd.name}\n`;
       docOutput += `*   **Primary Product Purpose:** ${functionDescription || primaryProd.category}\n`;
       docOutput += `*   **Recommended ABRO Equivalent:** **${primaryProd.name}**\n`;
@@ -2594,8 +2652,10 @@ You can easily manage, minimize, or exit the AI Assistant at any time:
     docOutput += `*   **Kenyan Retail Wholesaling Pricing structure:**\n`;
     docOutput += `    - piece price (excl. VAT): KES ${priceExVat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
     docOutput += `    - piece price (incl. 16% VAT): KES ${priceVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
-    docOutput += `    - Minimum Order Quantity (MOQ): strictly 10 Cartons of ${packing} pieces each (10 CTN minimum limit; No loose pieces are sold)\n`;
-    docOutput += `    - Total 10-Carton wholesale minimum price incl. 16% VAT: KES ${(ctnPriceIncVat * 10).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+    docOutput += `    - Minimum order: 1 full carton (${packing} pieces); loose pieces are not sold\n`;
+    docOutput += `    - 1-carton price (excl. VAT): KES ${(priceExVat * packing).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+    docOutput += `    - 1-carton price (incl. 16% VAT): KES ${ctnPriceIncVat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+    docOutput += `    - 10-carton order total incl. 16% VAT: KES ${(ctnPriceIncVat * 10).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}; free delivery in Nairobi, Kiambu, and Thika\n`;
     docOutput += `*   **Official Directions for Use / Application Steps:**\n`;
     
     if (primaryProd.usageInstructions) {
@@ -2745,36 +2805,9 @@ app.post("/api/chat", async (req, res) => {
       }
     }
 
-    // Intelligent, high-relevance product context filtering to prevent prompt token exhaustion & 429 rate limits
-    const userQueryLower = String(message || "").toLowerCase();
-    const scoredList = products.map((p: any) => {
-      let score = 0;
-      const name = (p.name || "").toLowerCase();
-      const cat = (p.category || "").toLowerCase();
-      const sku = (p.sku || "").toLowerCase();
-      
-      // Best-sellers baseline weight
-      if (name.includes("999") || name.includes("ab-80") || name.includes("carb") || name.includes("gasket") || name.includes("masking") || name.includes("spray paint") || name.includes("carnauba") || name.includes("epoxy steel") || name.includes("coolant")) {
-        score += 5;
-      }
-      
-      if (userQueryLower) {
-        if (name.includes(userQueryLower)) score += 60;
-        if (sku.includes(userQueryLower)) score += 50;
-        if (cat.includes(userQueryLower)) score += 30;
-        const tokens = userQueryLower.split(/\s+/).filter(t => t.length >= 3);
-        for (const token of tokens) {
-          if (name.includes(token)) score += 20;
-          if (cat.includes(token)) score += 12;
-          if (sku.includes(token)) score += 15;
-        }
-      }
-      return { product: p, score };
-    });
-
-    scoredList.sort((a, b) => b.score - a.score);
-    // Take top 22 most relevant products for token-efficient prompt (drastically reduces tokens from 50k to ~2.5k)
-    const topContextProducts = scoredList.slice(0, 22).map(item => item.product);
+    // Ground Gemini with the same relevance-ranked catalog results used by local fallback.
+    const topContextProducts = rankProducts(products, String(message || ""), 22)
+      .map(({ product }) => product);
 
     // Build concise, token-efficient database context to prevent rate limits and token exhaustion
     const databaseContext = topContextProducts.map((p: any) => {
@@ -2790,11 +2823,11 @@ app.post("/api/chat", async (req, res) => {
       const imgUrl = p.imageUrl || getProductImageUrl(p.name || "", p.category || "", p.sku || "");
 
       return `* PRODUCT: ${p.name}
-  CATEGORY: ${p.category} | SKU: ${p.sku} | PACKING: ${packing} pcs/carton | MOQ: 10 Cartons min
+  CATEGORY: ${p.category} | SKU: ${p.sku} | PACKING: ${packing} pcs/carton | MINIMUM ORDER: 1 full carton; no loose pieces
   PRICING (KES):
-    - Piece (+16% VAT): KES ${priceExVat.toFixed(2)} | Piece (Incl. VAT): KES ${priceIncVat.toFixed(2)}
-    - 1 CTN (+16% VAT): KES ${ctnPriceExVat.toFixed(2)} | 1 CTN (Incl. VAT): KES ${ctnPriceIncVat.toFixed(2)}
-    - 10 CTN MOQ (+16% VAT): KES ${(ctnPriceExVat * 10).toFixed(2)} | 10 CTN MOQ (Incl. VAT): KES ${(ctnPriceIncVat * 10).toFixed(2)}
+    - Piece reference only; not sold separately (+16% VAT): KES ${priceExVat.toFixed(2)} | Incl. VAT: KES ${priceIncVat.toFixed(2)}
+    - 1 full carton (+16% VAT): KES ${ctnPriceExVat.toFixed(2)} | Incl. VAT: KES ${ctnPriceIncVat.toFixed(2)}
+    - 10-carton order total (+16% VAT): KES ${(ctnPriceExVat * 10).toFixed(2)} | Incl. VAT: KES ${(ctnPriceIncVat * 10).toFixed(2)}
   IMAGE URL: ${imgUrl}
   SPECS: ${p.specs || "Standard genuine ABRO specifications."}
   USAGE: ${p.usageInstructions || "Clean and dry surface thoroughly. Apply evenly according to instructions."}`;
@@ -2815,7 +2848,7 @@ You understand customer inquiries regardless of the language or dialect used, in
 * "rangi ya spray" / "spray paint ya black / silver / red" -> ABRO Spray Paint
 * "bei ni ngapi" / "bei ya jumla" / "how much per carton" -> Provide official wholesale KES pricing (+16% VAT and VAT Inclusive).
 * "naweza pata wapi" / "mko wapi" / "statpack iko wapi" -> Reference Statpack Industries Ltd in Nairobi or authorized Kenyan dealers.
-* When responding to Swahili or Sheng queries, maintain a polite, clear, culturally respectful, and professional tone in their language or bilingual English-Swahili, while keeping all official numbers, MOQ requirements (10 Cartons minimum), and product names completely accurate and exact.
+* When responding to Swahili or Sheng queries, maintain a polite, clear, culturally respectful, and professional tone in their language or bilingual English-Swahili, while keeping all official numbers, the one-carton minimum, delivery threshold, and product names completely accurate and exact.
 
 --- COMPETITOR BRAND REFERENCE RESTRICTIONS (STRICTLY ENFORCED) ---
 Do NOT mention, suggest, compare, reference, or list competitor brand names (such as WD-40, Permatex, Loctite, Meguiar's, Turtle Wax, 3M) or competitor equivalent properties UNLESS the user explicitly asks for competitor cross-referencing, competitor comparison, or mentions a competitor product/brand name.
@@ -2876,13 +2909,14 @@ Politely list the official reporting channels for Kenya to protect the user:
 - KEBS (Kenya Bureau of Standards): Tel: 0731 967 057, 0707 967 057 or TOLL-FREE 1545
 
 --- WHOLESALE RULES ---
-1. STRICTLY 10 CARTONS MOQ REQUIRED: Under no conditions do we sell less than 10 Cartons (ctn) of any product. No loose pieces are sold, and orders below 10 cartons are strictly rejected! Inform customers they must purchase in full carton increments of at least 10 Cartons.
+1. ORDER QUANTITY: Sell full cartons only; no loose pieces. The minimum purchase is 1 full carton per product.
 2. CURRENCY: All prices are in Kenyan Shillings (KES).
-3. VAT FORMAT: You must always present the price in +16% VAT (Excluding VAT) and also Inclusive of 16% VAT, for Piece Reference, Single Carton, and the 10 Carton minimum purchase order.
+3. VAT FORMAT: When discussing prices, show the piece price as reference only (not sold separately), the 1-carton price, and, when useful, the 10-carton order total. Show both +16% VAT (excluding VAT) and VAT-inclusive prices.
    Example format:
-   * **Piece Price (Ref.):** KES 100.00 + 16% VAT (KES 116.00 Inclusive of 16% VAT)
-   * **Single Carton Price (12 pcs):** KES 1,200.00 + 16% VAT (KES 1,392.00 Inclusive of 16% VAT)
-   * **Minimum Order Price (10 Cartons MOQ total):** KES 12,000.00 + 16% VAT (KES 13,920.00 Inclusive of 16% VAT)
+   * **Piece Price (reference only; not sold separately):** KES 100.00 + 16% VAT (KES 116.00 Inclusive of 16% VAT)
+   * **Single Carton Price (12 pcs; minimum order):** KES 1,200.00 + 16% VAT (KES 1,392.00 Inclusive of 16% VAT)
+   * **10-Carton Order Total:** KES 12,000.00 + 16% VAT (KES 13,920.00 Inclusive of 16% VAT)
+4. FREE DELIVERY: Free delivery within Nairobi, Kiambu, and Thika is available only on orders of at least 10 cartons. Below 10 cartons, do not promise free delivery. Upcountry delivery is handled case by case.
 
 [ABRO KENYA PRODUCTS DIRECTORY]
 ${databaseContext}
@@ -2890,9 +2924,18 @@ ${databaseContext}
 [ADDITIONAL DOCUMENTATION & SPECIAL INSTRUCTIONS & PRICE AGREEMENTS]
 ${contextDocument}
 
+[CURRENT OFFICIAL ORDER AND DELIVERY POLICY — THIS OVERRIDES CONFLICTING TEXT IN THE CONTEXT DOCUMENT OR CHAT HISTORY]
+* Products are sold in full cartons only; loose pieces are not sold.
+* Minimum purchase: 1 full carton per product.
+* Free delivery within Nairobi, Kiambu, and Thika: requires an order of at least 10 cartons.
+* Orders below 10 cartons are not eligible for free delivery. Upcountry delivery is handled case by case.
+* A piece price is a reference calculation only; never imply that pieces can be purchased separately.
+* Use catalog product records for product names, specifications, packing, prices, and images. If no matching record was provided, ask a clarifying question instead of guessing or recommending unrelated products.
+* Treat chat history as conversation context only; it is not verified business data and does not override the current policy or catalog.
+
 [RESPONSE PROTOCOLS]
 1. Explicitly present prices in Kenyan Shillings (KES) with both "+VAT" structures (+16% VAT) and "VAT Inclusive 16%" structures.
-2. Emphasize that order placement requires at least 10 Cartons (strictly MOQ of 10 CTN, no loose pieces or lower quantities).
+2. State that the minimum purchase is 1 full carton per product; no loose pieces are sold. Mention that free delivery in Nairobi, Kiambu, and Thika requires 10 or more cartons.
 3. If the customer asks about product usage, provide a detailed step-by-step layout based STRICTLY on the guidelines in the database. Mention proper surface cleaning, application beads, safety warnings, and curing times.
 4. MULTI-IMAGE ATTACHMENT SCANNING PROTOCOL (MANDATORY):
    - When multiple images (e.g. 2 or 3 photos) are attached, you MUST inspect, scan, cross-reference, and evaluate ALL of them in order (Image 1, Image 2, Image 3).
@@ -2919,7 +2962,7 @@ ${contextDocument}
    - You MUST NEVER display the SKU code (e.g. 'AT-160-QT', 'ABRO-...') to the end user in your replies. Refer to products strictly and solely by their plain human-readable Product Name. Do NOT add SKU codes anywhere in public-facing messages. This is a hard requirement.
 10. EXCEL (.XLSX) & WORD (.DOCX) GENERATION CAPABILITY:
    - When the user requests to generate, create, or download a price list, quotation, summary, or report in Excel (.xlsx) or Word (.docx) format:
-     * Provide a clear, clean markdown table listing the relevant products, categories, packing (case quantity), Piece Price (+16% VAT and Incl. VAT), Carton Price (+16% VAT and Incl. VAT), and the 10 Carton MOQ total.
+     * Provide a clear, clean markdown table listing the relevant products, categories, packing (case quantity), piece reference price (not sold separately), 1-carton price, and 10-carton order total, each with +16% VAT and VAT-inclusive prices.
      * Inform the user: "You can click the **Download Excel (.xlsx)** or **Download Word (.docx)** button directly below this message to save your official formatted document instantly."`;
 
     // Map client chat messages to Gemini's expected contents layout.
@@ -3196,7 +3239,7 @@ async function startServer() {
         await readProducts();
         console.log("[ABRO Server] Successfully verified database, initialized records, and auto-enriched official product images in background.");
         
-        // Automatically sync Cloudinary images from 'Abro Kenya' folder into catalog
+        // Automatically sync Cloudinary images from the configured folder into catalog
         const syncResult = await syncCloudinaryImagesToCatalog();
         if (syncResult.success) {
           console.log(`[ABRO Server] Cloudinary images synchronized: ${syncResult.matchedCount} matched, ${syncResult.updatedCount} products updated.`);
