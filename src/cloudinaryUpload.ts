@@ -1,3 +1,5 @@
+import { getProductImagePublicId } from "./cloudinaryAsset";
+
 /**
  * Cloudinary Image Storage Integration Helper
  * Direct integration with Cloudinary cloud storage environment:
@@ -112,6 +114,7 @@ export async function uploadToCloudinary(
     folder?: string;
     public_id?: string;
     productSku?: string;
+    replaceExisting?: boolean;
   } = {}
 ): Promise<CloudinaryUploadResult> {
   try {
@@ -135,7 +138,7 @@ export async function uploadToCloudinary(
       });
     }
 
-    const publicId = options.public_id || (options.productSku ? `abro_${options.productSku.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase()}_${Date.now()}` : undefined);
+    const publicId = options.public_id || (options.productSku ? getProductImagePublicId(options.productSku) : undefined);
 
     const res = await fetch("/api/cloudinary/upload", {
       method: "POST",
@@ -145,7 +148,8 @@ export async function uploadToCloudinary(
       body: JSON.stringify({
         file: filePayload,
         folder: options.folder,
-        public_id: publicId
+        public_id: publicId,
+        replace_existing: options.replaceExisting || false
       })
     });
 

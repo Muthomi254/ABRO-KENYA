@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Edit2, Trash2, Search, Coins, Package, Shuffle, Tag, Trash, Sparkles, Activity, TrendingUp, RefreshCw, Download, BarChart3, X, Cloud, CheckCircle2, AlertCircle, Loader2, Camera, FolderOpen, ExternalLink, Eye, Image as ImageIcon, Check } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, Coins, Package, Shuffle, Tag, Trash, Sparkles, Activity, TrendingUp, RefreshCw, Download, BarChart3, X, Cloud, CheckCircle2, AlertCircle, Camera, FolderOpen, ExternalLink, Eye, Image as ImageIcon, Check } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from "recharts";
 import { Product } from "../types";
+import { useBodyScrollLock } from "../useBodyScrollLock";
+import CarLoader from "./CarLoader";
 import { calculatePricing, formatKES, getProductImageUrl, getProductDisplayName, compressAndResizeImage } from "../utils";
 import { saveProductImageOverride } from "../productImageStore";
 import { uploadToCloudinary, isCloudinaryUrl, optimizeImageForUpload } from "../cloudinaryUpload";
@@ -237,6 +239,7 @@ export default function ProductManager({
     matchedProduct: { id: string; sku: string; name: string } | null;
   }>>([]);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  useBodyScrollLock(showConfirmReset || Boolean(productToDelete) || showCloudinaryModal || showAssetsViewer);
 
   const fetchCloudinaryAssets = async () => {
     setIsLoadingAssets(true);
@@ -1051,12 +1054,8 @@ export default function ProductManager({
               <TrendingUp className="w-4 h-4" />
               Related Catalog Engagement Frequency (Matched Searches)
             </h4>
-            {isAnalyticsLoading ? (
-              <div className="h-44 flex flex-col items-center justify-center space-y-2">
-                <RefreshCw className="w-5 h-5 text-indigo-450 animate-spin" />
-                <p className="text-xs text-slate-400 font-mono animate-pulse">Running analytics render...</p>
-              </div>
-            ) : analyticsData.length === 0 ? (
+            <CarLoader active={isAnalyticsLoading} theme={theme} label="Running analytics..." size="panel" />
+            {!isAnalyticsLoading && (analyticsData.length === 0 ? (
               <p className="text-xs font-mono text-slate-400">No matched inquiries data found in specified period range.</p>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1096,7 +1095,7 @@ export default function ProductManager({
                   </p>
                 </div>
               </div>
-            )}
+            ))}
           </div>
         </div>
       )}
@@ -1132,7 +1131,8 @@ export default function ProductManager({
                 : "bg-slate-100 hover:bg-slate-200 text-slate-700"
             }`}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isAuditLogsLoading ? "animate-spin text-amber-500" : ""}`} />
+            <CarLoader active={isAuditLogsLoading} theme={theme} label="Reading audit logs" size="compact" />
+            {!isAuditLogsLoading && <RefreshCw className="w-3.5 h-3.5" />}
             <span>{isAuditLogsLoading ? "Reading..." : "Sync Logs"}</span>
           </button>
         </div>
@@ -1184,12 +1184,8 @@ export default function ProductManager({
         </div>
 
         {/* Audit Logs Table / Timeline */}
-        {isAuditLogsLoading ? (
-          <div className="h-44 flex flex-col items-center justify-center space-y-2">
-            <RefreshCw className="w-6 h-6 text-amber-500 animate-spin" />
-            <p className="text-xs text-slate-400 font-mono animate-pulse">Syncing accountability logs...</p>
-          </div>
-        ) : (
+        <CarLoader active={isAuditLogsLoading} theme={theme} label="Syncing accountability logs..." size="panel" />
+        {isAuditLogsLoading ? null : (
           <div className="overflow-x-auto rounded-xl border border-slate-500/10">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
@@ -1555,17 +1551,9 @@ export default function ProductManager({
                     onClick={handleSyncCloudinary}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm disabled:opacity-50"
                   >
-                    {isSyncingCloudinary ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Syncing Assets...</span>
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Sync All Cloudinary Images</span>
-                      </>
-                    )}
+                    <CarLoader active={isSyncingCloudinary} theme={theme} label="Syncing Cloudinary assets" size="compact" />
+                    {!isSyncingCloudinary && <RefreshCw className="w-3.5 h-3.5" />}
+                    <span>{isSyncingCloudinary ? "Syncing Assets..." : "Sync All Cloudinary Images"}</span>
                   </button>
 
                   <button
@@ -1648,9 +1636,9 @@ export default function ProductManager({
                         : "bg-sky-100 hover:bg-sky-200 text-sky-800 border-sky-300"
                     }`}
                   >
+                    <CarLoader active={isTestingCloudinary} theme={theme} label="Testing Cloudinary" size="compact" />
                     {isTestingCloudinary ? (
                       <>
-                        <Loader2 className="w-3 h-3 animate-spin" />
                         <span>Testing...</span>
                       </>
                     ) : (
@@ -1786,7 +1774,8 @@ export default function ProductManager({
                   }`}
                   title="Refresh asset list"
                 >
-                  <RefreshCw className={`w-4 h-4 ${isLoadingAssets ? "animate-spin" : ""}`} />
+                  <CarLoader active={isLoadingAssets} theme={theme} label="Refreshing image library" size="compact" />
+                  {!isLoadingAssets && <RefreshCw className="w-4 h-4" />}
                 </button>
                 <button
                   onClick={() => setShowAssetsViewer(false)}
@@ -1801,12 +1790,8 @@ export default function ProductManager({
 
             {/* Asset Grid */}
             <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
-              {isLoadingAssets ? (
-                <div className="py-16 text-center space-y-3">
-                  <Loader2 className="w-8 h-8 animate-spin text-sky-500 mx-auto" />
-                  <p className="text-xs text-slate-400">Scanning Cloudinary for uploaded photos...</p>
-                </div>
-              ) : cloudinaryAssets.length === 0 ? (
+              <CarLoader active={isLoadingAssets} theme={theme} label="Scanning Cloudinary for uploaded photos..." size="panel" className="mx-auto" />
+              {!isLoadingAssets && (cloudinaryAssets.length === 0 ? (
                 <div className="py-16 text-center space-y-2 text-slate-400">
                   <ImageIcon className="w-10 h-10 mx-auto opacity-40 text-slate-500" />
                   <p className="text-sm font-semibold">No assets returned from Cloudinary</p>
@@ -1894,7 +1879,7 @@ export default function ProductManager({
                     </div>
                   ))}
                 </div>
-              )}
+              ))}
             </div>
 
             {/* Footer */}
@@ -2068,16 +2053,13 @@ export default function ProductManager({
                 </div>
               )}
 
-              {isUploadingAddImage && (
-                <div className={`p-2.5 rounded-xl text-xs font-medium flex items-center gap-2 border animate-pulse ${
-                  theme === "dark"
-                    ? "bg-sky-500/15 border-sky-400/30 text-sky-300"
-                    : "bg-sky-50 border-sky-200 text-sky-800"
-                }`}>
-                  <Loader2 className="w-4 h-4 animate-spin text-sky-500 shrink-0" />
-                <span aria-live="polite">{addImageCloudinaryStatus || "Preparing image..."}</span>
-                </div>
-              )}
+              <CarLoader
+                active={isUploadingAddImage}
+                theme={theme}
+                label={addImageCloudinaryStatus || "Preparing image..."}
+                size="panel"
+                className="rounded-xl border border-sky-400/30 bg-sky-500/10"
+              />
 
               {addImageCloudinaryError && (
                 <div className={`p-2.5 rounded-xl text-xs flex items-start gap-2 border ${
@@ -2268,6 +2250,7 @@ export default function ProductManager({
                 theme === "dark" ? "bg-indigo-500 hover:bg-indigo-400 text-white border-indigo-400/20 shadow-lg shadow-indigo-500/20" : "bg-[#00A859] hover:bg-[#00924d] text-white border-emerald-455 shadow-md shadow-emerald-500/10"
               }`}
             >
+              <CarLoader active={isUploadingAddImage} theme={theme} label="Uploading image" size="compact" />
               {isUploadingAddImage ? "Uploading image..." : "Save Product"}
             </button>
           </div>
@@ -2501,6 +2484,7 @@ export default function ProductManager({
                               theme === "dark" ? "bg-indigo-500 hover:bg-slate-450 text-white border-indigo-400/20" : "bg-[#00A859] hover:bg-[#00924d] text-white border-emerald-455"
                             }`}
                           >
+                            <CarLoader active={isSavingEdit} theme={theme} label="Saving product" size="compact" />
                             {isSavingEdit ? "Saving..." : "Save"}
                           </button>
                           {editSaveError && (
