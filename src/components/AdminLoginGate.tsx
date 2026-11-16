@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Lock, Eye, EyeOff, AlertCircle, RefreshCw, KeyRound, ShieldAlert } from "lucide-react";
+import { Lock, Eye, EyeOff, AlertCircle, KeyRound, ShieldAlert } from "lucide-react";
+import CarLoader from "./CarLoader";
 // @ts-ignore
 import adminSecShieldImg from "../assets/images/admin_sec_shield_1781288198153.jpg";
 
@@ -146,12 +147,12 @@ export default function AdminLoginGate({ onLoginSuccess, theme }: AdminLoginGate
             >
               {isSubmitting ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
                   <span>Configuring Session...</span>
                 </>
               ) : (
                 <span>Access Protected Console</span>
               )}
+              <CarLoader active={isSubmitting} theme={theme} label="Configuring session" size="compact" />
             </button>
           </form>
 

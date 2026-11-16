@@ -6,9 +6,11 @@ import ProductManager from "./components/ProductManager";
 import ContextDocManager from "./components/ContextDocManager";
 import AdminLoginGate from "./components/AdminLoginGate";
 import ClientCatalog from "./components/ClientCatalog";
+import CarLoader from "./components/CarLoader";
 import DashboardOverview from "./components/DashboardOverview";
 import { calculatePricing, formatKES, getProductImageUrl } from "./utils";
 import { applyPersistentImageOverrides, saveProductImageOverride } from "./productImageStore";
+import { useBodyScrollLock } from "./useBodyScrollLock";
 import ZoomableImage from "./components/ZoomableImage";
 import { CombinedLogo, CorporateHeaderLogos, CorporateFooterLogos, AbroKenyaCompanionIcon } from "./components/BrandLogos";
 
@@ -56,6 +58,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("catalog");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatExpanded, setIsChatExpanded] = useState(false);
+  useBodyScrollLock(isChatOpen && activeTab !== "chat" && isChatExpanded);
   const [showSidebar, setShowSidebar] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [contextDocument, setContextDocument] = useState("");
@@ -730,12 +733,13 @@ export default function App() {
       )}
 
       {/* Loading Block overlay */}
-      {isLoading && products.length === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center space-y-3 bg-slate-950/40 backdrop-blur-md">
-          <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin" />
-          <p className="text-xs text-slate-450 font-medium font-mono">Synchronizing active stocks and specs...</p>
-        </div>
-      )}
+      <CarLoader
+        active={isLoading}
+        theme={theme}
+        label="Synchronizing active stocks and specs..."
+        size="panel"
+        className="flex-1 bg-slate-950/40 backdrop-blur-md"
+      />
 
       {/* Primary Workspace Panels */}
       <main className={`flex-1 w-full mx-auto flex flex-col min-h-0 ${

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Search, Package, ListFilter, Compass, BookOpen, Sparkles, Download, Printer, Grid, List, HelpCircle, ArrowRight, Check, X, Scale, FileSpreadsheet, FileText, ShoppingCart, MessageSquare, Trash2, CornerDownLeft, ZoomIn, ZoomOut, RotateCcw, Copy, ExternalLink, ShieldCheck, Plus, Truck, Phone, Mail, ShieldAlert, Layers, Info, MapPin } from "lucide-react";
 import { Product } from "../types";
+import { useBodyScrollLock } from "../useBodyScrollLock";
 import ZoomableImage from "./ZoomableImage";
 import { generateCatalogExcel, generateCatalogWord } from "../documentGenerator";
 import { calculatePricing, formatKES } from "../utils";
@@ -269,6 +270,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
   const [compareProducts, setCompareProducts] = useState<Product[]>([]);
   const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
+  useBodyScrollLock(Boolean(zoomedProduct) || isInquiryModalOpen || isCompareModalOpen);
 
   const handleToggleCompare = (product: Product) => {
     const exists = compareProducts.some((p) => p.id === product.id);

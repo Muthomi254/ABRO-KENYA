@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ZoomIn, ZoomOut, Edit, X, Save, Copy, Check, RotateCcw, Image, ExternalLink, Cloud, CheckCircle2, AlertCircle, Loader2, Camera, FolderOpen, Upload, ShieldCheck, Truck, Package, Info } from "lucide-react";
+import { ZoomIn, ZoomOut, Edit, X, Save, Copy, Check, RotateCcw, Image, ExternalLink, Cloud, CheckCircle2, AlertCircle, Camera, FolderOpen, Upload, ShieldCheck, Truck, Package, Info } from "lucide-react";
+import CarLoader from "./CarLoader";
 import { compressAndResizeImage, formatKES, calculatePricing } from "../utils";
 import { saveProductImageOverride } from "../productImageStore";
+import { useBodyScrollLock } from "../useBodyScrollLock";
 import { uploadToCloudinary, isCloudinaryUrl, optimizeImageForUpload } from "../cloudinaryUpload";
 import CameraCaptureModal from "./CameraCaptureModal";
 import abroLogo from "../assets/images/abro_logo_1780759135632.png";
@@ -36,6 +38,7 @@ export default function ZoomableImage({
   theme = "dark"
 }: ZoomableImageProps) {
   const [isZoomed, setIsZoomed] = useState(false);
+  useBodyScrollLock(isZoomed);
   const [scale, setScale] = useState(1);
   const [editUrl, setEditUrl] = useState(src);
   const [isSaving, setIsSaving] = useState(false);
@@ -112,7 +115,8 @@ export default function ZoomableImage({
       const optimizedFile = await optimizeImageForUpload(file);
       setUploadProgress(`Uploading optimized image (${Math.max(1, Math.round(optimizedFile.size / 1024))} KB)...`);
       const res = await uploadToCloudinary(optimizedFile, {
-        productSku
+        productSku,
+        replaceExisting: true
       });
 
       if (res.success && res.url) {
@@ -141,6 +145,12 @@ export default function ZoomableImage({
         }
       } else {
         setCloudinaryNotice(res.error || "Cloudinary upload notice");
+        if (productSku) {
+          URL.revokeObjectURL(previewUrl);
+          uploadPreviewUrlRef.current = null;
+          setEditUrl(src);
+          return;
+        }
         const compressed = await compressAndResizeImage(optimizedFile, 800, 800, 0.82);
         if (compressed) {
           URL.revokeObjectURL(previewUrl);
@@ -737,12 +747,9 @@ export default function ZoomableImage({
                               : "bg-emerald-500/10 border-emerald-500/25 text-emerald-700 hover:bg-emerald-500/20 active:bg-emerald-500/30"
                           }`}
                         >
+                          <CarLoader active={isAutoMatching} theme={theme} label="Running image matcher" size="compact" />
                           {isAutoMatching ? (
                             <>
-                              <svg className="animate-spin -ml-1 mr-1 h-3.5 w-3.5 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
                               <span>Running 5-Step Matcher...</span>
                             </>
                           ) : autoMatchSuccess ? (
@@ -814,16 +821,13 @@ export default function ZoomableImage({
                           </div>
                         )}
 
-                        {isUploadingCloudinary && (
-                          <div className={`p-2.5 rounded-lg text-xs font-medium flex items-center gap-2 border animate-pulse ${
-                            theme === "dark"
-                              ? "bg-sky-500/15 border-sky-400/30 text-sky-300"
-                              : "bg-sky-50 border-sky-200 text-sky-800"
-                          }`}>
-                            <Loader2 className="w-4 h-4 animate-spin text-sky-500 shrink-0" />
-                            <span aria-live="polite">{uploadProgress || "Preparing image..."}</span>
-                          </div>
-                        )}
+                        <CarLoader
+                          active={isUploadingCloudinary}
+                          theme={theme}
+                          label={uploadProgress || "Uploading image to Cloudinary"}
+                          size="panel"
+                          className="rounded-lg border border-sky-400/30 bg-sky-500/10"
+                        />
 
                         {cloudinaryNotice && (
                           <div className={`p-2 rounded-lg text-[10px] flex items-start gap-1.5 border ${
@@ -983,8 +987,9 @@ export default function ZoomableImage({
                             : "bg-[#00a859] hover:bg-[#00924d] text-white shadow-emerald-500/5 border-[#00a859]/25"
                         }`}
                       >
+                        <CarLoader active={isSaving} theme={theme} label="Saving image" size="compact" />
                         {isSaving ? (
-                          <span className="animate-spin text-xs">...</span>
+                          <span>Saving...</span>
                         ) : saveSuccess ? (
                           <>
                             <Check className="w-3.5 h-3.5 text-emerald-450 animate-bounce" />

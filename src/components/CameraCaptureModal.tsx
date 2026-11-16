@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Camera, X, RefreshCw, Check, AlertCircle, SwitchCamera, Image, Sparkles } from "lucide-react";
+import { useBodyScrollLock } from "../useBodyScrollLock";
+import CarLoader from "./CarLoader";
 
 interface CameraCaptureModalProps {
   isOpen: boolean;
@@ -16,6 +18,7 @@ export default function CameraCaptureModal({
   theme = "dark",
   title = "Take Product Photo"
 }: CameraCaptureModalProps) {
+  useBodyScrollLock(isOpen);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedDataUrl, setCapturedDataUrl] = useState<string | null>(null);
   const [capturedFile, setCapturedFile] = useState<File | null>(null);
@@ -316,12 +319,13 @@ export default function CameraCaptureModal({
           )}
 
           {/* Camera Loading Spinner */}
-          {isLoadingCamera && (
-            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-2 text-white z-20">
-              <RefreshCw className="w-6 h-6 animate-spin text-emerald-400" />
-              <p className="text-xs font-medium">Starting camera...</p>
-            </div>
-          )}
+          <CarLoader
+            active={isLoadingCamera}
+            theme={theme}
+            label="Starting camera..."
+            size="panel"
+            className="absolute inset-0 bg-black/80 text-white z-20"
+          />
 
           {/* Camera Error / Permission Denied Fallback */}
           {cameraError && (

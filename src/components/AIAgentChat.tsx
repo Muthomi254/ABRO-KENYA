@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { ChatMessage, Product } from "../types";
 import ZoomableImage from "./ZoomableImage";
+import CarLoader from "./CarLoader";
 import abroKenyaIcon from "../assets/images/abro_kenya_icon_custom_1782232481339.png";
 import { 
   generateCatalogExcel, 
@@ -112,7 +113,7 @@ const FAQ_POOL: FAQItem[] = [
   },
   {
     id: "original-check",
-    text: "How can I verify if my ABRO product is 100% genuine?",
+    text: "Can you assess whether my ABRO Grey 999 packaging appears consistent with the Kenyan market?",
     category: "other",
     tags: ["genuine", "verify", "original", "counterfeit", "fake", "check", "real"],
     priority: 2
@@ -1652,16 +1653,18 @@ export default function AIAgentChat({
  
              {/* Scrollable list of active session docs */}
              <div className="flex-1 overflow-y-auto p-2 space-y-1">
-               {isSyncing && sessions.length === 0 ? (
-                 <div className="p-4 text-center text-xs text-slate-400">
-                   <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1.5 text-slate-550" />
-                   <span>Loading history...</span>
-                 </div>
-               ) : sessions.length === 0 ? (
+               <CarLoader
+                 active={isSyncing && sessions.length === 0}
+                 theme={theme}
+                 label="Loading conversation history"
+                 size="panel"
+                 className="mx-auto"
+               />
+               {!isSyncing && sessions.length === 0 ? (
                  <div className="p-6 text-center text-xs text-slate-450 italic leading-relaxed">
                    No saved conversations in cloud storage yet.
                  </div>
-               ) : (
+               ) : sessions.length > 0 ? (
                  sessions.map((sess) => {
                    const isActive = currentSessionId === sess.id;
                    return (
@@ -1693,7 +1696,7 @@ export default function AIAgentChat({
                      </div>
                    );
                  })
-               )}
+               ) : null}
              </div>
            </div>
          )}
@@ -2020,20 +2023,7 @@ export default function AIAgentChat({
           );
         })}
 
-        {isLoading && (
-          <div className="py-2.5 sm:py-4 max-w-2xl sm:max-w-3xl mx-auto w-full px-2 sm:px-4 flex items-start space-x-2 sm:space-x-3.5">
-            <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 border bg-slate-900 border-white/10`}>
-              <QuadColorEmblem className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border flex items-center space-x-1.5 ${
-              theme === "dark" ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"
-            }`}>
-              <span className="w-1.5 h-1.5 rounded-full animate-bounce bg-[#00A859]" style={{ animationDelay: "0ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full animate-bounce bg-[#016838]" style={{ animationDelay: "150ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full animate-bounce bg-[#E01A22]" style={{ animationDelay: "300ms" }} />
-            </div>
-          </div>
-        )}
+        <CarLoader active={isLoading} theme={theme} label="Assistant is responding" size="panel" className="mx-auto" />
         <div ref={messagesEndRef} />
       </div>
 
@@ -2203,7 +2193,7 @@ export default function AIAgentChat({
               </button>
               <button
                 type="button"
-                onClick={() => handleSendMessage("How do I verify authentic ABRO products vs counterfeits in Kenya? What security marks should I look for?")}
+                onClick={() => handleSendMessage("Can you assess whether this ABRO Grey 999 packaging appears consistent with the Kenyan market?")}
                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border whitespace-nowrap transition-all cursor-pointer hover:scale-[1.02] active:scale-95 shrink-0 ${
                   theme === "dark"
                     ? "bg-[#182333] hover:bg-[#202e42] text-slate-200 border-white/10 hover:border-emerald-500/40"
