@@ -1,9 +1,11 @@
+import { getProductImagePublicId } from "./cloudinaryAsset";
+
 /**
  * Cloudinary Image Storage Integration Helper
  * Direct integration with Cloudinary cloud storage environment:
  * Cloud name: muthomi254
  * API Key: 595797988235321
- * Target Folder: Abro Kenya
+ * Target Folder: AbroKenya
  */
 
 export interface CloudinaryConfig {
@@ -30,6 +32,58 @@ export interface CloudinaryUploadResult {
 }
 
 /**
+ * Resize camera/gallery images before base64 encoding so uploads use less memory and bandwidth.
+ */
+export async function optimizeImageForUpload(
+  file: File,
+  maxDimension = 1600,
+  quality = 0.82
+): Promise<File> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Choose a supported image file.");
+  }
+  if (typeof createImageBitmap !== "function") return file;
+
+  const bitmap = await createImageBitmap(file);
+  try {
+    if (bitmap.width <= maxDimension && bitmap.height <= maxDimension && file.size <= 350_000) {
+      return file;
+    }
+
+    const scale = Math.min(1, maxDimension / bitmap.width, maxDimension / bitmap.height);
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("This browser could not prepare the image for upload.");
+    }
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(bitmap, 0, 0, width, height);
+
+    const optimizedBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error("Could not compress the selected image.")),
+        "image/jpeg",
+        quality
+      );
+    });
+
+    const fileName = file.name.replace(/\.[^.]+$/, "") || "product-image";
+    return new File([optimizedBlob], `${fileName}.jpg`, {
+      type: "image/jpeg",
+      lastModified: Date.now()
+    });
+  } finally {
+    bitmap.close();
+  }
+}
+
+/**
  * Fetch the active Cloudinary server configuration status
  */
 export async function getCloudinaryConfig(): Promise<CloudinaryConfig> {
@@ -45,7 +99,7 @@ export async function getCloudinaryConfig(): Promise<CloudinaryConfig> {
     configured: true,
     cloud_name: "muthomi254",
     api_key: "595797988235321",
-    folder: "Abro Kenya",
+    folder: "AbroKenya",
     has_secret: false,
     preset: "Abro_kenya"
   };
@@ -60,6 +114,7 @@ export async function uploadToCloudinary(
     folder?: string;
     public_id?: string;
     productSku?: string;
+    replaceExisting?: boolean;
   } = {}
 ): Promise<CloudinaryUploadResult> {
   try {
@@ -83,7 +138,7 @@ export async function uploadToCloudinary(
       });
     }
 
-    const publicId = options.public_id || (options.productSku ? `abro_${options.productSku.replace(/[^a-zA-Z0-9_-]/g, "_").toLowerCase()}_${Date.now()}` : undefined);
+    const publicId = options.public_id || (options.productSku ? getProductImagePublicId(options.productSku) : undefined);
 
     const res = await fetch("/api/cloudinary/upload", {
       method: "POST",
@@ -92,8 +147,9 @@ export async function uploadToCloudinary(
       },
       body: JSON.stringify({
         file: filePayload,
-        folder: options.folder || "Abro Kenya",
-        public_id: publicId
+        folder: options.folder,
+        public_id: publicId,
+        replace_existing: options.replaceExisting || false
       })
     });
 

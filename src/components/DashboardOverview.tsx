@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import CarLoader from "./CarLoader";
 import { 
   BarChart3, 
   PieChart as PieChartIcon, 
@@ -300,7 +301,7 @@ export default function DashboardOverview({
               }`}
               title="Refresh Analytics Data"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin text-indigo-400" : ""}`} />
+              <CarLoader active={isLoading} theme={theme} label="Refreshing dashboard" size="compact" />
             </button>
           </div>
         </div>

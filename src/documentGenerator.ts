@@ -47,12 +47,12 @@ export function generateCatalogExcel(products: Product[], fileName = "ABRO_Kenya
     "PRODUCT NAME",
     "CATEGORY",
     "PACKING (PCS/CTN)",
-    "PIECE (+16% VAT) KES",
-    "PIECE (INCL. 16% VAT) KES",
+    "PIECE REFERENCE (+16% VAT) KES",
+    "PIECE REFERENCE (INCL. 16% VAT) KES",
     "CARTON (+16% VAT) KES",
     "CARTON (INCL. 16% VAT) KES",
-    "10 CTN MOQ TOTAL (+16% VAT) KES",
-    "10 CTN MOQ TOTAL (INCL. 16% VAT) KES",
+    "10 CTN ORDER TOTAL (+16% VAT) KES",
+    "10 CTN ORDER TOTAL (INCL. 16% VAT) KES",
     "SPECIFICATIONS"
   ];
 
@@ -113,9 +113,9 @@ export function generateCatalogExcel(products: Product[], fileName = "ABRO_Kenya
     [],
     ["Key Policy", "Details"],
     ["Sole Authorized Distributor", "Statpack Industries Ltd is the sole authorized importer and distributor of genuine ABRO USA products in Kenya & East Africa."],
-    ["Minimum Order Quantity (MOQ)", "Strictly 10 Cartons minimum. No loose pieces or partial cartons are sold."],
+    ["Minimum Order Quantity (MOQ)", "1 full carton per product. No loose pieces or partial cartons are sold."],
     ["Currency & Tax", "All wholesale prices are listed in Kenyan Shillings (KES). Kenya VAT rate is 16%."],
-    ["Delivery", "Free delivery within Nairobi, Kiambu, Thika."],
+    ["Delivery", "Free delivery within Nairobi, Kiambu, and Thika for orders of at least 10 cartons; orders below 10 cartons are not eligible for free delivery."],
     ["Upcountry", "Delivery is handled in a case by case basis."],
     ["Counterfeit Protection (Grey 999)", "1. KEBS verification hologram on top right. 2. 'GENUINE GASKET MAKER 999 STATPACK' side weld text. 3. 'ABRO BRAND USA - STATPACK' rear card print."],
     ["Direct Order Hotline", "Tel: +254 748 441 470 / +254 732 322 182 | Email: orders@statpack.co.ke | Website: https://statpack.co.ke/"],
@@ -144,8 +144,8 @@ export async function generateCatalogWord(products: Product[], documentTitle = "
         createTableCell("SKU", { isHeader: true, width: 1600 }),
         createTableCell("Product Name & Specs", { isHeader: true, width: 3800 }),
         createTableCell("Packing", { isHeader: true, width: 1100 }),
-        createTableCell("Piece (+VAT)", { isHeader: true, width: 1400 }),
-        createTableCell("Piece (Incl. VAT)", { isHeader: true, width: 1500 }),
+        createTableCell("Piece Ref. (+VAT)", { isHeader: true, width: 1400 }),
+        createTableCell("Piece Ref. (Incl. VAT)", { isHeader: true, width: 1500 }),
         createTableCell("Carton (Incl. VAT)", { isHeader: true, width: 1600 })
       ]
     }),
@@ -225,7 +225,7 @@ export async function generateCatalogWord(products: Product[], documentTitle = "
           new Paragraph({
             children: [
               new TextRun({ text: "• Minimum Order Quantity (MOQ): ", bold: true }),
-              new TextRun("Strictly 10 Cartons minimum. No loose pieces or single units are sold.")
+              new TextRun("Minimum 1 full carton per product. No loose pieces or single units are sold.")
             ],
             spacing: { after: 100 }
           }),
@@ -238,8 +238,15 @@ export async function generateCatalogWord(products: Product[], documentTitle = "
           }),
           new Paragraph({
             children: [
+              new TextRun({ text: "• Free Delivery: ", bold: true }),
+              new TextRun("Available within Nairobi, Kiambu, and Thika for orders of at least 10 cartons.")
+            ],
+            spacing: { after: 100 }
+          }),
+          new Paragraph({
+            children: [
               new TextRun({ text: "• Delivery Terms: ", bold: true }),
-              new TextRun("Delivery : Free delivery within Nairobi, Kiambu, Thika. Upcountry : Delivery is handled in a case by case basis.")
+              new TextRun("Free delivery within Nairobi, Kiambu, and Thika applies to orders of at least 10 cartons. Upcountry delivery is handled case by case.")
             ],
             spacing: { after: 300 }
           }),

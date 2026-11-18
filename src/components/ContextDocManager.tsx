@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { FileText, Sparkles, Check, ClipboardCopy, Send, Save, AlertCircle, RefreshCw, Sliders } from "lucide-react";
 import { Product } from "../types";
 import { getProductDisplayName } from "../utils";
+import CarLoader from "./CarLoader";
 
 // Robust pricing extractor preventing mangled digits from trailing info like +16% VAT, /=, or qty descriptors
 function parseCleanPrice(raw: any): number {
@@ -630,7 +631,8 @@ ABRO Liquid Brake Cleaner SKU: ABRO-BC-110, Category: Car Care & Maintenance, Pr
                 : "bg-[#00a859] hover:bg-[#00924d] border-emerald-455 shadow-emerald-500/10"
             }`}
           >
-            {isSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            <CarLoader active={isSaving} theme={theme} label="Saving context" size="compact" />
+            {!isSaving && <Save className="w-3.5 h-3.5" />}
             <span>{saveSuccess ? "Saved successfully!" : "Save Context Document"}</span>
           </button>
         </div>
@@ -877,11 +879,9 @@ ABRO Liquid Brake Cleaner SKU: ABRO-BC-110, Category: Car Care & Maintenance, Pr
                               : "bg-[#00a859] hover:bg-[#00924d] border-[#00a859]/20 shadow-emerald-501/10"
                           }`}
                         >
+                          <CarLoader active={isEnriching} theme={theme} label="Enriching spreadsheet" size="compact" />
                           {isEnriching ? (
-                            <>
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              <span>Enriching with ABRO Specs...</span>
-                            </>
+                            <span>Enriching with ABRO Specs...</span>
                           ) : (
                             <>
                               <Check className="w-3.5 h-3.5" />
@@ -1017,7 +1017,8 @@ ABRO Liquid Brake Cleaner SKU: ABRO-BC-110, Category: Car Care & Maintenance, Pr
                   : "bg-[#00a859] hover:bg-[#00924d] border-[#00a859]/20 shadow-[#00a859]/10"
               }`}
             >
-              {isParsing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-400" />}
+              <CarLoader active={isParsing} theme={theme} label="Analyzing text" size="compact" />
+              {!isParsing && <Sparkles className="w-3.5 h-3.5 text-amber-400" />}
               <span>Analyse with Gemini AI</span>
             </button>
           </div>

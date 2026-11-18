@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { ChatMessage, Product } from "../types";
 import ZoomableImage from "./ZoomableImage";
+import CarLoader from "./CarLoader";
 import abroKenyaIcon from "../assets/images/abro_kenya_icon_custom_1782232481339.png";
 import { 
   generateCatalogExcel, 
@@ -31,7 +32,7 @@ interface ChatProps {
   onToggleSidebar?: () => void;
   externalTriggerQuery?: string;
   onClearExternalTrigger?: () => void;
-  onUpdateProductImageUrl?: (id: string, newUrl: string) => void;
+  onUpdateProductImageUrl?: (id: string, newUrl: string) => Promise<void>;
   onCollapseNavbar?: () => void;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
@@ -112,7 +113,7 @@ const FAQ_POOL: FAQItem[] = [
   },
   {
     id: "original-check",
-    text: "How can I verify if my ABRO product is 100% genuine?",
+    text: "Can you assess whether my ABRO Grey 999 packaging appears consistent with the Kenyan market?",
     category: "other",
     tags: ["genuine", "verify", "original", "counterfeit", "fake", "check", "real"],
     priority: 2
@@ -361,6 +362,7 @@ export default function AIAgentChat({
   const [sessions, setSessions] = useState<any[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
   const [isSessionSidebarOpen, setIsSessionSidebarOpen] = useState(false); // starts collapsed, user toggles
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState<string | null>(null);
@@ -454,7 +456,7 @@ export default function AIAgentChat({
               const data = await res.json();
               if (data.success && data.imageUrl) {
                 if (onUpdateProductImageUrl) {
-                  onUpdateProductImageUrl(p.id, data.imageUrl);
+                  await onUpdateProductImageUrl(p.id, data.imageUrl);
                 }
               }
             }
@@ -579,7 +581,7 @@ export default function AIAgentChat({
       {
         id: "welcome",
         role: "model",
-        text: "Habari! Welcome to Statpack's official ABRO Kenya & East Africa stock dictionary gateway. Statpack is the sole importer and distributor of genuine ABRO products in Kenya and East Africa. I am your dynamic AI Sales & Spec assistant. Ask me anything about our sealants, gasket makers, aerosol spray paints, or car wash specs. I can provide specs and details for any product. Please keep in mind: our Minimum Order Quantity (MOQ) is strictly 10 Cartons (no loose pieces are sold, 10 CTN minimum limit).",
+        text: "Habari! Welcome to Statpack's official ABRO Kenya & East Africa stock dictionary gateway. Statpack is the sole importer and distributor of genuine ABRO products in Kenya and East Africa. I am your dynamic AI Sales & Spec assistant. Ask me anything about our sealants, gasket makers, aerosol spray paints, or car wash specs. Products are sold by full carton only, with a minimum of 1 carton per product; loose pieces are not sold. Free delivery within Nairobi, Kiambu, and Thika is available for orders of at least 10 cartons.",
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       },
     ]);
@@ -625,10 +627,26 @@ export default function AIAgentChat({
   };
 
   const handleSignIn = async () => {
+    setSignInError(null);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
-      console.error("Google Sign In Error:", err);
+      const authError = err && typeof err === "object" ? err as { code?: string; message?: string } : {};
+      const code = authError.code || "unknown";
+      console.error("Google Sign In Error:", { code, message: authError.message || String(err) });
+
+      const actionableMessage = code === "auth/unauthorized-domain"
+        ? "This site is not authorized for Google sign-in. Add its hostname (for local development, localhost) under Firebase Console > Authentication > Settings > Authorized domains."
+        : code === "auth/operation-not-allowed"
+          ? "Google sign-in is disabled for this Firebase project. Enable Google under Firebase Console > Authentication > Sign-in method."
+          : code === "auth/popup-blocked"
+            ? "The sign-in popup was blocked. Allow popups for this site and try again."
+            : code === "auth/popup-closed-by-user"
+              ? "The sign-in window was closed before authentication finished. Try again when ready."
+              : code === "auth/network-request-failed"
+                ? "Firebase could not reach the sign-in service. Check your connection and try again."
+                : `Google sign-in failed (${code}). In Firebase project hip-canto-qln7n, verify Google is enabled and this site's hostname is listed under Authentication > Settings > Authorized domains.`;
+      setSignInError(actionableMessage);
     }
   };
 
@@ -779,7 +797,7 @@ export default function AIAgentChat({
       {
         id: "welcome",
         role: "model",
-        text: "Habari! Welcome to Statpack's official ABRO Kenya & East Africa stock dictionary gateway. Statpack is the sole importer and distributor of genuine ABRO products in Kenya and East Africa. I am your dynamic AI Sales & Spec assistant. Ask me anything about our sealants, gasket makers, aerosol spray paints, or car wash specs. I can provide specs and details for any product. Please keep in mind: our Minimum Order Quantity (MOQ) is strictly 10 Cartons (no loose pieces are sold, 10 CTN minimum limit).",
+        text: "Habari! Welcome to Statpack's official ABRO Kenya & East Africa stock dictionary gateway. Statpack is the sole importer and distributor of genuine ABRO products in Kenya and East Africa. I am your dynamic AI Sales & Spec assistant. Ask me anything about our sealants, gasket makers, aerosol spray paints, or car wash specs. Products are sold by full carton only, with a minimum of 1 carton per product; loose pieces are not sold. Free delivery within Nairobi, Kiambu, and Thika is available for orders of at least 10 cartons.",
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
     ]);
@@ -1201,7 +1219,7 @@ export default function AIAgentChat({
         {
           id: "welcome",
           role: "model",
-          text: "Habari! Welcome to Statpack's official ABRO Kenya & East Africa stock dictionary gateway. Statpack is the sole importer and distributor of genuine ABRO products in Kenya and East Africa. I am your dynamic AI Sales & Spec assistant. Ask me anything about our sealants, gasket makers, aerosol spray paints, or car wash specs. I can provide specs and details for any product. Please keep in mind: our Minimum Order Quantity (MOQ) is strictly 10 Cartons (no loose pieces are sold, 10 CTN minimum limit).",
+          text: "Habari! Welcome to Statpack's official ABRO Kenya & East Africa stock dictionary gateway. Statpack is the sole importer and distributor of genuine ABRO products in Kenya and East Africa. I am your dynamic AI Sales & Spec assistant. Ask me anything about our sealants, gasket makers, aerosol spray paints, or car wash specs. Products are sold by full carton only, with a minimum of 1 carton per product; loose pieces are not sold. Free delivery within Nairobi, Kiambu, and Thika is available for orders of at least 10 cartons.",
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
@@ -1514,6 +1532,27 @@ export default function AIAgentChat({
         </div>
       </div>
 
+      {signInError && (
+        <div
+          role="alert"
+          className={`flex items-start justify-between gap-3 px-3 py-2 text-xs border-b ${
+            theme === "dark"
+              ? "bg-rose-950/40 border-rose-500/20 text-rose-200"
+              : "bg-rose-50 border-rose-200 text-rose-800"
+          }`}
+        >
+          <span>{signInError}</span>
+          <button
+            type="button"
+            onClick={() => setSignInError(null)}
+            className="shrink-0 font-bold hover:underline"
+            aria-label="Dismiss sign-in error"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {isExpanded && (
         <div className={`hidden sm:flex px-4 py-1.5 text-[11px] font-medium border-b items-center justify-between shrink-0 select-none ${
           theme === "dark" ? "bg-sky-950/40 border-sky-500/20 text-sky-200" : "bg-sky-50 border-sky-200 text-sky-900"
@@ -1614,16 +1653,18 @@ export default function AIAgentChat({
  
              {/* Scrollable list of active session docs */}
              <div className="flex-1 overflow-y-auto p-2 space-y-1">
-               {isSyncing && sessions.length === 0 ? (
-                 <div className="p-4 text-center text-xs text-slate-400">
-                   <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1.5 text-slate-550" />
-                   <span>Loading history...</span>
-                 </div>
-               ) : sessions.length === 0 ? (
+               <CarLoader
+                 active={isSyncing && sessions.length === 0}
+                 theme={theme}
+                 label="Loading conversation history"
+                 size="panel"
+                 className="mx-auto"
+               />
+               {!isSyncing && sessions.length === 0 ? (
                  <div className="p-6 text-center text-xs text-slate-450 italic leading-relaxed">
                    No saved conversations in cloud storage yet.
                  </div>
-               ) : (
+               ) : sessions.length > 0 ? (
                  sessions.map((sess) => {
                    const isActive = currentSessionId === sess.id;
                    return (
@@ -1655,7 +1696,7 @@ export default function AIAgentChat({
                      </div>
                    );
                  })
-               )}
+               ) : null}
              </div>
            </div>
          )}
@@ -1707,7 +1748,7 @@ export default function AIAgentChat({
                 </h1>
                 
                 <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mb-3 leading-relaxed font-medium">
-                  Official Sole Importer & Distributor in Kenya • Instant Technical Specs, Formulations & 10 CTN Wholesale Pricing
+                  Official Sole Importer & Distributor in Kenya • Instant Technical Specs, Formulations & Carton Pricing
                 </p>
 
                 {/* 3 Quick Horizontal Pill Chips */}
@@ -1727,7 +1768,7 @@ export default function AIAgentChat({
 
                   <button
                     type="button"
-                    onClick={() => handleSendMessage("Please provide genuine wholesale carton pricing in KES for top ABRO products with 10 Carton MOQ.")}
+                    onClick={() => handleSendMessage("Please provide genuine wholesale carton pricing in KES for ABRO products. The minimum purchase is 1 full carton per product; no loose pieces are sold. Explain the 10-carton free-delivery threshold for Nairobi, Kiambu, and Thika.")}
                     className={`inline-flex items-center gap-1 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-bold border transition-all cursor-pointer hover:scale-[1.02] active:scale-95 shadow-xs ${
                       theme === "dark"
                         ? "bg-[#182333] hover:bg-[#202e42] text-slate-200 hover:text-white border-white/10 hover:border-emerald-500/40"
@@ -1735,7 +1776,7 @@ export default function AIAgentChat({
                     }`}
                   >
                     <span>💰</span>
-                    <span>10 CTN Wholesale Prices</span>
+                    <span>Carton Prices & 10-Carton Totals</span>
                   </button>
 
                   <button
@@ -1982,20 +2023,7 @@ export default function AIAgentChat({
           );
         })}
 
-        {isLoading && (
-          <div className="py-2.5 sm:py-4 max-w-2xl sm:max-w-3xl mx-auto w-full px-2 sm:px-4 flex items-start space-x-2 sm:space-x-3.5">
-            <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 border bg-slate-900 border-white/10`}>
-              <QuadColorEmblem className="w-4 h-4 sm:w-5 sm:h-5" />
-            </div>
-            <div className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border flex items-center space-x-1.5 ${
-              theme === "dark" ? "bg-white/5 border-white/10" : "bg-slate-100 border-slate-200"
-            }`}>
-              <span className="w-1.5 h-1.5 rounded-full animate-bounce bg-[#00A859]" style={{ animationDelay: "0ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full animate-bounce bg-[#016838]" style={{ animationDelay: "150ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full animate-bounce bg-[#E01A22]" style={{ animationDelay: "300ms" }} />
-            </div>
-          </div>
-        )}
+        <CarLoader active={isLoading} theme={theme} label="Assistant is responding" size="panel" className="mx-auto" />
         <div ref={messagesEndRef} />
       </div>
 
@@ -2141,7 +2169,7 @@ export default function AIAgentChat({
               </button>
               <button
                 type="button"
-                onClick={() => handleSendMessage("Please provide genuine wholesale carton pricing in KES for top ABRO products with 10 Carton MOQ.")}
+                onClick={() => handleSendMessage("Please provide genuine wholesale carton pricing in KES for ABRO products. The minimum purchase is 1 full carton per product; no loose pieces are sold. Explain the 10-carton free-delivery threshold for Nairobi, Kiambu, and Thika.")}
                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border whitespace-nowrap transition-all cursor-pointer hover:scale-[1.02] active:scale-95 shrink-0 ${
                   theme === "dark"
                     ? "bg-[#182333] hover:bg-[#202e42] text-slate-200 border-white/10 hover:border-emerald-500/40"
@@ -2149,7 +2177,7 @@ export default function AIAgentChat({
                 }`}
               >
                 <span>💰</span>
-                <span>10 CTN Wholesale Prices</span>
+                <span>Carton Prices & 10-Carton Totals</span>
               </button>
               <button
                 type="button"
@@ -2165,7 +2193,7 @@ export default function AIAgentChat({
               </button>
               <button
                 type="button"
-                onClick={() => handleSendMessage("How do I verify authentic ABRO products vs counterfeits in Kenya? What security marks should I look for?")}
+                onClick={() => handleSendMessage("Can you assess whether this ABRO Grey 999 packaging appears consistent with the Kenyan market?")}
                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border whitespace-nowrap transition-all cursor-pointer hover:scale-[1.02] active:scale-95 shrink-0 ${
                   theme === "dark"
                     ? "bg-[#182333] hover:bg-[#202e42] text-slate-200 border-white/10 hover:border-emerald-500/40"
@@ -2360,7 +2388,7 @@ export default function AIAgentChat({
               <span>•</span>
               <span className={useMaps ? "text-emerald-500 font-bold" : ""}>Grounding: {useMaps ? "On" : "Off"}</span>
             </button>
-            <span className="truncate hidden sm:inline">Statpack Sole Importer • 10 CTN Wholesale MOQ</span>
+            <span className="truncate hidden sm:inline">Statpack Sole Importer • Full-carton sales, 1-carton minimum</span>
           </div>
         </div>
       </div>

@@ -75,9 +75,13 @@ export async function saveProductImageOverride(key: string, imageUrl: string): P
   const db = await openDB();
   if (db) {
     try {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      const store = tx.objectStore(STORE_NAME);
-      store.put({ key: normalizedKey, imageUrl, timestamp: Date.now() });
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error("IndexedDB image override write failed."));
+        tx.onabort = () => reject(tx.error || new Error("IndexedDB image override write was aborted."));
+        tx.objectStore(STORE_NAME).put({ key: normalizedKey, imageUrl, timestamp: Date.now() });
+      });
     } catch (e) {
       console.warn("[Persistent Image Store] Error writing to IndexedDB:", e);
     }
@@ -100,7 +104,8 @@ export async function getAllImageOverrides(): Promise<Record<string, string>> {
         req.onsuccess = () => {
           if (Array.isArray(req.result)) {
             for (const item of req.result) {
-              if (item.key && item.imageUrl) {
+              // localStorage is written synchronously, so an older IndexedDB value must not replace it.
+              if (item.key && item.imageUrl && !Object.prototype.hasOwnProperty.call(result, item.key)) {
                 result[item.key] = item.imageUrl;
               }
             }

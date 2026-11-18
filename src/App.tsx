@@ -6,18 +6,59 @@ import ProductManager from "./components/ProductManager";
 import ContextDocManager from "./components/ContextDocManager";
 import AdminLoginGate from "./components/AdminLoginGate";
 import ClientCatalog from "./components/ClientCatalog";
+import CarLoader from "./components/CarLoader";
 import DashboardOverview from "./components/DashboardOverview";
 import { calculatePricing, formatKES, getProductImageUrl } from "./utils";
 import { applyPersistentImageOverrides, saveProductImageOverride } from "./productImageStore";
+import { useBodyScrollLock } from "./useBodyScrollLock";
 import ZoomableImage from "./components/ZoomableImage";
 import { CombinedLogo, CorporateHeaderLogos, CorporateFooterLogos, AbroKenyaCompanionIcon } from "./components/BrandLogos";
 
 type ActiveTab = "chat" | "catalog" | "dashboard" | "products" | "context" | "login";
 
+let initialDataRequest: Promise<{
+  products: Product[];
+  context: string;
+}> | null = null;
+
+function loadInitialData() {
+  if (!initialDataRequest) {
+    initialDataRequest = (async () => {
+      const [prodRes, ctxRes] = await Promise.all([
+        fetch("/api/products"),
+        fetch("/api/context")
+      ]);
+
+      if (!prodRes.ok || !ctxRes.ok) {
+        throw new Error(
+          "Failed to load initial stock lists or context defaults. Launching with backup simulation."
+        );
+      }
+
+      const [prodData, ctxData] = await Promise.all([
+        prodRes.json(),
+        ctxRes.json()
+      ]);
+      const rawProducts: Product[] = prodData.products || [];
+      const products = await applyPersistentImageOverrides(rawProducts);
+
+      return {
+        products,
+        context: ctxData.context || ""
+      };
+    })().finally(() => {
+      initialDataRequest = null;
+    });
+  }
+
+  return initialDataRequest;
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("catalog");
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatExpanded, setIsChatExpanded] = useState(false);
+  useBodyScrollLock(isChatOpen && activeTab !== "chat" && isChatExpanded);
   const [showSidebar, setShowSidebar] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [contextDocument, setContextDocument] = useState("");
@@ -179,23 +220,9 @@ export default function App() {
     setIsLoading(true);
     setErrorInfo(null);
     try {
-      const [prodRes, ctxRes] = await Promise.all([
-        fetch("/api/products"),
-        fetch("/api/context")
-      ]);
-
-      if (!prodRes.ok || !ctxRes.ok) {
-        throw new Error("Failed to load initial stock lists or context defaults. Launching with backup simulation.");
-      }
-
-      const prodData = await prodRes.json();
-      const ctxData = await ctxRes.json();
-
-      const rawProducts: Product[] = prodData.products || [];
-      const enrichedProducts = await applyPersistentImageOverrides(rawProducts);
-
-      setProducts(enrichedProducts);
-      setContextDocument(ctxData.context || "");
+      const data = await loadInitialData();
+      setProducts(data.products);
+      setContextDocument(data.context);
     } catch (err: any) {
       setErrorInfo(err.message || "Unable to reach server. Please restart development server.");
     } finally {
@@ -239,6 +266,27 @@ export default function App() {
     try {
       const existingProduct = products.find(p => p.id === id);
       if (updatedFields.imageUrl) {
+        let imageRes: Response;
+        try {
+          imageRes = await fetch(`/api/products/${id}/image`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...(adminToken ? { "Authorization": `Bearer ${adminToken}` } : {})
+            },
+            body: JSON.stringify({ imageUrl: updatedFields.imageUrl })
+          });
+        } catch (requestError) {
+          if (requestError instanceof TypeError) {
+            throw new Error("Could not reach the app server to save this image. Check that the server is running, then press Save to retry.");
+          }
+          throw requestError;
+        }
+        const imageData = await imageRes.json();
+        if (!imageRes.ok) {
+          throw new Error(imageData.error || "Could not save the new product image.");
+        }
+
         await saveProductImageOverride(id, updatedFields.imageUrl);
         if (existingProduct?.sku) {
           await saveProductImageOverride(existingProduct.sku, updatedFields.imageUrl);
@@ -246,40 +294,50 @@ export default function App() {
         if (existingProduct?.name) {
           await saveProductImageOverride(existingProduct.name, updatedFields.imageUrl);
         }
-        // Direct server update for image URL
-        try {
-          await fetch(`/api/products/${id}/image`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageUrl: updatedFields.imageUrl })
-          });
-        } catch (patchErr) {
-          console.warn("Direct image patch error:", patchErr);
+        if (imageData.cleanupWarning) {
+          alert(imageData.cleanupWarning);
         }
       }
 
-      // Optimistically update products state right away
-      setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updatedFields } : p)));
+      const onlyUpdatingImage = Object.keys(updatedFields).every((field) => field === "imageUrl");
+      if (updatedFields.imageUrl && onlyUpdatingImage) {
+        setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...updatedFields } : p)));
+        return;
+      }
 
-      // If full admin PUT update
+      if (!adminToken) {
+        throw new Error("Please sign in as administrator before saving product changes.");
+      }
+
       if (adminToken) {
-        const res = await fetch(`/api/products/${id}`, {
+        let res: Response;
+        try {
+          res = await fetch(`/api/products/${id}`, {
           method: "PUT",
           headers: { 
             "Content-Type": "application/json",
             "Authorization": `Bearer ${adminToken}`
           },
           body: JSON.stringify(updatedFields)
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.product) {
-            setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...data.product } : p)));
+          });
+        } catch (requestError) {
+          if (requestError instanceof TypeError) {
+            throw new Error("Could not reach the app server to save product changes. Check that the server is running, then try again.");
           }
+          throw requestError;
         }
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Could not save product changes.");
+        }
+        if (!data.product) {
+          throw new Error("The server did not confirm the product update.");
+        }
+        setProducts((prev) => prev.map((p) => (p.id === id ? { ...p, ...data.product } : p)));
       }
     } catch (err: any) {
       console.error("Update product error:", err?.message || err);
+      throw err;
     }
   };
 
@@ -675,12 +733,13 @@ export default function App() {
       )}
 
       {/* Loading Block overlay */}
-      {isLoading && products.length === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center space-y-3 bg-slate-950/40 backdrop-blur-md">
-          <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin" />
-          <p className="text-xs text-slate-450 font-medium font-mono">Synchronizing active stocks and specs...</p>
-        </div>
-      )}
+      <CarLoader
+        active={isLoading}
+        theme={theme}
+        label="Synchronizing active stocks and specs..."
+        size="panel"
+        className="flex-1 bg-slate-950/40 backdrop-blur-md"
+      />
 
       {/* Primary Workspace Panels */}
       <main className={`flex-1 w-full mx-auto flex flex-col min-h-0 ${
@@ -743,14 +802,7 @@ export default function App() {
               externalTriggerQuery={catalogQuery}
               onClearExternalTrigger={() => setCatalogQuery(undefined)}
               onUpdateProductImageUrl={async (id, newUrl) => {
-                const target = products.find(p => p.id === id);
-                if (target) {
-                  await saveProductImageOverride(id, newUrl);
-                  if (target.sku) await saveProductImageOverride(target.sku, newUrl);
-                  if (target.name) await saveProductImageOverride(target.name, newUrl);
-                }
-                setProducts(prev => prev.map(p => p.id === id ? { ...p, imageUrl: newUrl } : p));
-                handleUpdateProduct(id, { imageUrl: newUrl });
+                await handleUpdateProduct(id, { imageUrl: newUrl });
               }}
               isExpanded={true}
               onToggleExpand={() => {
@@ -922,7 +974,7 @@ export default function App() {
               {/* Everything else formatted into 2 neat lines in tablet and mobile mode */}
               <div className="flex flex-col items-center md:items-center lg:items-end text-center lg:text-right gap-0.5 leading-snug">
                 <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  Sole Importer & Authorized Distributor in Kenya & East Africa
+                  Sole Importer & Authorized Distributor in Kenya
                 </span>
                 <div className="flex items-center justify-center lg:justify-end gap-2 text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                   <a
@@ -963,7 +1015,7 @@ export default function App() {
             {/* Everything else formatted into 2 neat lines in tablet and mobile mode */}
             <div className="flex flex-col items-center md:items-center lg:items-end text-center lg:text-right gap-0.5 leading-snug">
               <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                Sole Importer & Authorized Distributor in Kenya & East Africa
+                Sole Importer & Authorized Distributor in Kenya
               </span>
               <div className="flex items-center justify-center lg:justify-end gap-2 text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                 <a
@@ -1018,14 +1070,7 @@ export default function App() {
               externalTriggerQuery={catalogQuery}
               onClearExternalTrigger={() => setCatalogQuery(undefined)}
               onUpdateProductImageUrl={async (id, newUrl) => {
-                const target = products.find(p => p.id === id);
-                if (target) {
-                  await saveProductImageOverride(id, newUrl);
-                  if (target.sku) await saveProductImageOverride(target.sku, newUrl);
-                  if (target.name) await saveProductImageOverride(target.name, newUrl);
-                }
-                setProducts(prev => prev.map(p => p.id === id ? { ...p, imageUrl: newUrl } : p));
-                handleUpdateProduct(id, { imageUrl: newUrl });
+                await handleUpdateProduct(id, { imageUrl: newUrl });
               }}
               isExpanded={isChatExpanded}
               onToggleExpand={() => setIsChatExpanded(!isChatExpanded)}
