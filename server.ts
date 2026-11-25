@@ -9,7 +9,7 @@ import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import { getProductImageUrl } from "./src/utils";
 import { rankProducts } from "./src/productSearch";
-import { initializeApp, getApps } from "firebase-admin/app";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
 import { v2 as cloudinary } from "cloudinary";
 import crypto from "crypto";
@@ -3359,7 +3359,7 @@ app.get("/sitemap.xml", (req, res) => {
 async function startServer() {
   await initDataStore();
   
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
     const vite = await createViteServer({
       server: { middlewareMode: true, hmr: false },
       appType: "spa",
@@ -3373,26 +3373,34 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    serverReady = true;
-    console.log(`[ABRO Server] running successfully on http://0.0.0.0:${PORT}`);
-    
-    // Perform database connection and image enrichment asynchronously in the background
-    (async () => {
-      try {
-        await readProducts();
-        console.log("[ABRO Server] Successfully verified database, initialized records, and auto-enriched official product images in background.");
-        
-        // Automatically sync Cloudinary images from the configured folder into catalog
-        const syncResult = await syncCloudinaryImagesToCatalog();
-        if (syncResult.success) {
-          console.log(`[ABRO Server] Cloudinary images synchronized: ${syncResult.matchedCount} matched, ${syncResult.updatedCount} products updated.`);
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      serverReady = true;
+      console.log(`[ABRO Server] running successfully on http://0.0.0.0:${PORT}`);
+      
+      // Perform database connection and image enrichment asynchronously in the background
+      (async () => {
+        try {
+          await readProducts();
+          console.log("[ABRO Server] Successfully verified database, initialized records, and auto-enriched official product images in background.");
+          
+          // Automatically sync Cloudinary images from the configured folder into catalog
+          const syncResult = await syncCloudinaryImagesToCatalog();
+          if (syncResult.success) {
+            console.log(`[ABRO Server] Cloudinary images synchronized: ${syncResult.matchedCount} matched, ${syncResult.updatedCount} products updated.`);
+          }
+        } catch (err: any) {
+          console.warn("[ABRO Server] Failed to pre-load and enrich products in background startup:", err?.message || err);
         }
-      } catch (err: any) {
-        console.warn("[ABRO Server] Failed to pre-load and enrich products in background startup:", err?.message || err);
-      }
-    })();
-  });
+      })();
+    });
+  } else {
+    serverReady = true;
+    // Background init for serverless
+    readProducts().catch(() => {});
+  }
 }
 
 startServer();
+
+export default app;

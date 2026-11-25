@@ -1083,33 +1083,39 @@ export default function App() {
         </aside>
       )}
 
-      {/* Floating Button to Initiate AI Chat */}
-      {!isChatOpen && activeTab !== "chat" && (
+      {/* Floating Responsive Toggle Button (Always visible text on mobile, expands on hover on desktop) */}
+      {activeTab !== "chat" && (
         <button
           id="initiate-ai-chat-btn"
           type="button"
           onClick={() => {
-            setIsChatOpen(true);
+            setIsChatOpen(!isChatOpen);
             setIsChatExpanded(false);
           }}
-          className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 flex items-center gap-2.5 px-4 py-3 sm:px-5 sm:py-3.5 rounded-full shadow-2xl border cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 group select-none ${
-            theme === "dark"
-              ? "bg-gradient-to-r from-[#00609C] via-[#007cc2] to-[#00A859] text-white border-sky-400/40 shadow-[0_10px_35px_rgba(0,96,156,0.55)]"
-              : "bg-gradient-to-r from-[#00A859] via-[#00bf65] to-[#00609C] text-white border-emerald-400/40 shadow-[0_10px_35px_rgba(0,168,89,0.4)]"
+          className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex items-center gap-2.5 p-3.5 sm:p-4 rounded-full shadow-2xl border cursor-pointer transition-all duration-300 group select-none shadow-emerald-500/30 ${
+            isChatOpen
+              ? "max-w-[260px] px-5 bg-rose-600 text-white border-rose-400/50 shadow-rose-900/50"
+              : "max-w-[210px] sm:max-w-[56px] sm:hover:max-w-[260px] px-4 py-3.5 sm:px-3.5 sm:py-3.5 sm:hover:px-5 bg-gradient-to-r from-[#00A859] via-[#00bf65] to-[#00609C] text-white border-emerald-400/40 shadow-[0_10px_35px_rgba(0,168,89,0.5)]"
           }`}
-          title="Open ABRO AI Assistant (Catalog & Specs Support)"
-          aria-label="Initiate AI Assistant Chat"
+          title={isChatOpen ? "Close AI Assistant" : "Open ABRO AI Assistant (Catalog & Specs Support)"}
+          aria-label={isChatOpen ? "Close AI Assistant" : "Initiate AI Assistant Chat"}
         >
-          <div className="relative flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-amber-300 animate-pulse group-hover:rotate-12 transition-transform" />
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-white/50" />
+          <div className="shrink-0 flex items-center justify-center">
+            {isChatOpen ? (
+              <X className="w-5 h-5 text-white" />
+            ) : (
+              <Sparkles className="w-5 h-5 text-amber-300" />
+            )}
           </div>
-          <div className="flex flex-col items-start text-left leading-none">
+          <div className={`flex flex-col items-start text-left leading-none whitespace-nowrap transition-all duration-300 overflow-hidden ${
+            isChatOpen ? "opacity-100 max-w-[200px]" : "opacity-100 max-w-[150px] sm:opacity-0 sm:max-w-0 sm:group-hover:opacity-100 sm:group-hover:max-w-[200px]"
+          }`}>
             <span className="text-xs sm:text-sm font-black tracking-wide uppercase flex items-center gap-1.5">
-              <span>Ask AI Assistant</span>
+              <span>{isChatOpen ? "Close AI Assistant" : "Ask AI Assistant"}</span>
             </span>
-            <span className="text-[10px] opacity-90 font-medium mt-0.5">Product Specs & Pricing</span>
+            <span className="text-[10px] opacity-95 font-bold mt-0.5">
+              {isChatOpen ? "Tap to hide chat" : "Product Specs & Pricing"}
+            </span>
           </div>
         </button>
       )}

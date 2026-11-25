@@ -6,6 +6,7 @@ import ZoomableImage from "./ZoomableImage";
 import { generateCatalogExcel, generateCatalogWord } from "../documentGenerator";
 import { calculatePricing, formatKES } from "../utils";
 import abroLogo from "../assets/images/abro_logo_1780759135632.png";
+import statpackLogo from "../assets/images/Statpack logo.png";
 
 const catalogBrokenUrls = new Set<string>();
 
@@ -426,9 +427,99 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
     document.body.removeChild(link);
   };
 
-  // 🖨️ Native high-fidelity print call for standard system PDF save
+  // 🖨️ Robust high-fidelity print call with standalone window fallback for sandboxes
+  // 🎨 Robust Visual Product Brochure Export (ABRO + Statpack Logos, no hotline/URL header)
+  // 🎨 Robust Visual Product Brochure Export (ABRO + Statpack Logo images on 3rd line, absolute URL resolution, no browser URL header)
   const handlePrint = () => {
-    window.print();
+    try {
+      const printWindow = window.open("", "_blank");
+      if (printWindow) {
+        const abroLogoUrl = window.location.origin + abroLogo;
+        const statpackLogoUrl = window.location.origin + statpackLogo;
+
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title></title>
+              <style>
+                @page {
+                  size: A4;
+                  margin: 10mm;
+                }
+                body { font-family: system-ui, -apple-system, sans-serif; padding: 0; margin: 0; color: #111; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                .header { text-align: center; margin-bottom: 16px; border-bottom: 3px solid #00A859; padding-bottom: 10px; }
+                .logo-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
+                .logo-img { height: 28px; object-fit: contain; }
+                .dist-text { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+                .header h1 { font-size: 20px; color: #00609C; margin: 2px 0 2px 0; font-weight: 900; letter-spacing: -0.5px; }
+                .header p { font-size: 11px; color: #555; margin: 0; font-weight: 500; }
+                .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+                .card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; background: #fff; display: flex; flex-direction: column; justify-content: space-between; page-break-inside: avoid; break-inside: avoid; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+                .card-top { display: flex; gap: 14px; align-items: center; }
+                .img-box { width: 130px; height: 130px; flex-shrink: 0; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f8fafc; padding: 4px; }
+                .img-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
+                .info { flex: 1; }
+                .category { font-size: 10px; text-transform: uppercase; font-weight: bold; color: #00A859; display: block; margin-bottom: 2px; }
+                .title { font-size: 14px; font-weight: 800; color: #0f172a; margin: 0 0 4px 0; line-height: 1.2; }
+                .specs { font-size: 11px; color: #475569; margin: 0; line-height: 1.35; }
+                .page-footer { text-align: center; margin-top: 20px; font-size: 10px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+                @media print {
+                  body { padding: 0; }
+                  .card { break-inside: avoid; page-break-inside: avoid; }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="header">
+                <h1>ABRO® KENYA OFFICIAL PRODUCT BROCHURE</h1>
+                <p>Embakasi Central Depot, Nairobi • Genuine USA Formulation</p>
+                <div class="logo-row" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px;">
+                  <img src="${abroLogoUrl}" alt="ABRO Logo" style="height: 28px; object-fit: contain;" crossorigin="anonymous" />
+                  <span style="font-size: 11px; font-family: serif; font-style: italic; font-weight: bold; color: #475569; padding: 0 2px;">By</span>
+                  <img src="${statpackLogoUrl}" alt="Statpack Logo" style="height: 24px; object-fit: contain;" crossorigin="anonymous" />
+                </div>
+              </div>
+
+              <div class="grid">
+                ${filteredProducts.map((p) => {
+                  const rawImg = p.imageUrl || `https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=300&q=80`;
+                  const imgSrc = rawImg.startsWith("/") ? window.location.origin + rawImg : rawImg;
+                  return `
+                    <div class="card">
+                      <div class="card-top">
+                        <div class="img-box">
+                          <img src="${imgSrc}" alt="${p.name}" crossorigin="anonymous" />
+                        </div>
+                        <div class="info">
+                          <span class="category">${p.category}</span>
+                          <h3 class="title">${p.name}</h3>
+                          <p class="specs">${p.specs || "Genuine ABRO high-performance formulation."}</p>
+                        </div>
+                      </div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+
+              <div class="page-footer">
+                <p><strong>Statpack Industries Ltd</strong> • Official Product Brochure & Specifications • All rights reserved.</p>
+              </div>
+
+              <script>
+                window.onload = function() {
+                  setTimeout(() => { window.print(); }, 500);
+                };
+              </script>
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+      }
+    } catch (err) {
+      console.error("Brochure print error:", err);
+      alert("Please allow popups to open the visual product brochure.");
+    }
   };
 
   return (
