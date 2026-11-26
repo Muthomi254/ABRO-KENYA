@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import fs from "fs/promises";
 import fsSync from "fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import helmet from "helmet";
@@ -20,6 +19,7 @@ import { getManagedCloudinaryPublicId, isCloudinaryAccountImage } from "./src/cl
 dotenv.config();
 
 const app = express();
+app.set("trust proxy", 1);
 const PORT = getServerPort(process.env.PORT);
 let serverReady = false;
 
@@ -65,25 +65,45 @@ function handleFirestoreFailure(operation: string, err: any) {
 
 try {
   const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+  let config: any = {};
   if (fsSync.existsSync(configPath)) {
-    const config = JSON.parse(fsSync.readFileSync(configPath, "utf-8"));
-    if (config.projectId) {
-      const firebaseApp = getApps().length === 0
-        ? initializeApp({ projectId: config.projectId })
-        : getApps()[0];
+    config = JSON.parse(fsSync.readFileSync(configPath, "utf-8"));
+  }
 
-      const databaseId = config.firestoreDatabaseId || "(default)";
+  const projectId = config.projectId || process.env.FIREBASE_PROJECT_ID;
+  const databaseId = config.firestoreDatabaseId || "(default)";
+  const hasExplicitServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim());
+  const hasGoogleAppCreds = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim());
 
-      dbFirestore = getFirestore(firebaseApp, databaseId);
-      dbFirestore.settings({ ignoreUndefinedProperties: true });
-      firestoreConnected = true;
-      console.log(
-        `[Firebase Admin] Connected to Firestore: ${config.projectId}/${databaseId}`
-      );
+  // On non-GCP serverless platforms like Vercel, only initialize firebase-admin if explicit credentials exist;
+  // otherwise Firestore SDK hangs attempting to reach the GCP metadata server (169.254.169.254).
+  if (getApps().length === 0) {
+    if (hasExplicitServiceAccount) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON as string);
+      initializeApp({
+        credential: cert(serviceAccount),
+        projectId: serviceAccount.project_id || projectId,
+      });
+      console.log(`[Firebase Admin] Initialized with SERVICE_ACCOUNT_JSON for project: ${serviceAccount.project_id || projectId}`);
+    } else if (!process.env.VERCEL && (hasGoogleAppCreds || projectId)) {
+      if (projectId) {
+        initializeApp({ projectId });
+      }
     }
+  }
+
+  if (getApps().length > 0) {
+    dbFirestore = getFirestore(getApps()[0], databaseId);
+    dbFirestore.settings({ ignoreUndefinedProperties: true });
+    firestoreConnected = true;
+    console.log(`[Firebase Admin] Connected to Firestore: ${projectId || "default"}/${databaseId}`);
+  } else if (process.env.VERCEL) {
+    console.log("[Firebase Admin] Running in Vercel serverless mode with bundled JSON catalog (no FIREBASE_SERVICE_ACCOUNT_JSON set).");
   }
 } catch (err: any) {
   console.warn("[Firebase Admin] Notice: Running with local filesystem fallback datastore:", err?.message || err);
+  dbFirestore = null;
+  firestoreConnected = false;
 }
 
 // Create separate security profiles for sandbox preview and strict standalone production environments
@@ -897,7 +917,7 @@ async function loadProductsFromStore() {
         }
       }
 
-      if (await repairProductCatalogImages(uniqueList)) {
+      if (!process.env.VERCEL && await repairProductCatalogImages(uniqueList)) {
         didModifyImages = true;
       }
 
@@ -3313,7 +3333,7 @@ Let's search for products or verify genuine status above as standard database qu
 });
 
 // === SEO & GEO (AI Search Engine Optimization) ROUTES ===
-app.get("/robots.txt", (req, res) => {
+app.get(["/robots.txt", "/api/robots.txt"], (req, res) => {
   res.type("text/plain");
   res.send(`User-agent: *
 Allow: /
@@ -3337,7 +3357,7 @@ User-agent: Bingbot
 Allow: /`);
 });
 
-app.get("/llms.txt", (req, res) => {
+app.get(["/llms.txt", "/api/llms.txt"], (req, res) => {
   res.type("text/plain");
   res.send(`# ABRO Product Cross-Reference Agent
 > A comprehensive, full-stack search and cross-reference engine built to match competitor automotive, chemical, and hardware products with their exact ABRO equivalents.
@@ -3348,7 +3368,7 @@ app.get("/llms.txt", (req, res) => {
 - **Dynamic Image Pathing:** Automatically predicts and retrieves direct asset URLs via canonical CDN structures using slug conversion.`);
 });
 
-app.get("/sitemap.xml", (req, res) => {
+app.get(["/sitemap.xml", "/api/sitemap.xml"], (req, res) => {
   const host = req.get("host") || "ais-pre-wi2gzanb5fsfts7stebflk-660136629718.europe-west2.run.app";
   const protocol = req.protocol || "https";
   const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -3365,49 +3385,50 @@ app.get("/sitemap.xml", (req, res) => {
 });
 
 // === VITE DEV/PRODUCTION MIDDLEWARE ===
-const distPath = path.join(process.cwd(), "dist");
-
-if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
-  createViteServer({
-    server: { middlewareMode: true, hmr: false },
-    appType: "spa",
-  }).then((vite) => {
-    app.use(vite.middlewares);
-  }).catch(() => {});
-} else {
-  app.use(express.static(distPath));
-  app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api/")) {
-      return next();
-    }
-    res.sendFile(path.join(distPath, "index.html"));
-  });
-}
-
-// Initialize datastore and background tasks asynchronously
-initDataStore().catch(() => {});
-
-if (!process.env.VERCEL) {
-  app.listen(PORT, "0.0.0.0", () => {
-    serverReady = true;
-    console.log(`[ABRO Server] running successfully on http://0.0.0.0:${PORT}`);
-    
-    (async () => {
-      try {
-        await readProducts();
-        console.log("[ABRO Server] Successfully verified database and initialized records.");
-        const syncResult = await syncCloudinaryImagesToCatalog();
-        if (syncResult.success) {
-          console.log(`[ABRO Server] Cloudinary images synchronized: ${syncResult.matchedCount} matched.`);
-        }
-      } catch (err: any) {
-        console.warn("[ABRO Server] Background startup notice:", err?.message || err);
-      }
-    })();
-  });
-} else {
+if (process.env.VERCEL) {
   serverReady = true;
-  readProducts().catch(() => {});
+} else {
+  const startServer = async () => {
+    await initDataStore().catch(() => {});
+
+    if (process.env.NODE_ENV !== "production") {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true, hmr: false },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res, next) => {
+        if (req.path.startsWith("/api/")) {
+          return next();
+        }
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
+
+    app.listen(PORT, "0.0.0.0", () => {
+      serverReady = true;
+      console.log(`[ABRO Server] running successfully on http://0.0.0.0:${PORT}`);
+
+      (async () => {
+        try {
+          await readProducts();
+          console.log("[ABRO Server] Successfully verified database and initialized records.");
+          const syncResult = await syncCloudinaryImagesToCatalog();
+          if (syncResult.success) {
+            console.log(`[ABRO Server] Cloudinary images synchronized: ${syncResult.matchedCount} matched.`);
+          }
+        } catch (err: any) {
+          console.warn("[ABRO Server] Background startup notice:", err?.message || err);
+        }
+      })();
+    });
+  };
+
+  startServer();
 }
 
 export default app;
