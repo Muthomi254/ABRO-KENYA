@@ -1,10 +1,16 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
-  "rewrites": [
+  "builds": [
     {
-      "source": "/(.*)",
-      "destination": "dist/server.cjs"
+      "src": "dist/server.cjs",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "dist/server.cjs"
     }
   ]
 }
