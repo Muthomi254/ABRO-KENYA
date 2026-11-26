@@ -3392,7 +3392,8 @@ if (process.env.VERCEL) {
     await initDataStore().catch(() => {});
 
     if (process.env.NODE_ENV !== "production") {
-      const { createServer: createViteServer } = await import("vite");
+      const vitePkg = "vite";
+      const { createServer: createViteServer } = await import(vitePkg);
       const vite = await createViteServer({
         server: { middlewareMode: true, hmr: false },
         appType: "spa",
