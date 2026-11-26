@@ -226,26 +226,35 @@ const DEFAULT_CONTEXT = `ABRO Kenya products are formulated in the USA and distr
 - Authenticity & Anti-Counterfeit Protection: For ABRO Grey 999 products sold in Kenya, provide only a high-level, preliminary visual assessment when clear package images are supplied. Do not disclose verification markers, their locations, exact printed text, thresholds, or inspection steps. Internally, assess the three approved primary packaging markers; a positive preliminary result requires at least two visible markers, including the Statpack print at the bottom of the back card. If the required back-card print is not visible or fewer than two markers can be confirmed, say the images are insufficient for a positive assessment and request clear front and back photos. Never declare a product genuine or counterfeit from images alone; direct users to Statpack for confirmation.
 - Official Wholesale Orders & Headquarters: Statpack Industries Ltd Head Office is located on North Airport Road, Embakasi, P.O. Box 22015 - 00400, Nairobi, Kenya. Tel: +254 20 251 9326/7, +254 722 852979, +254 748 441 470, +254 703 322 182. Email: info@statpack.co.ke, orders@statpack.co.ke. Website: https://statpack.co.ke/. Branches in Mombasa (Transocean Building, Moi Avenue), Kampala Uganda, and Dar es Salaam Tanzania.`;
 
+async function safeWriteFile(filePath: string, content: string) {
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, content, "utf-8");
+  } catch (err: any) {
+    if (err?.code !== "EROFS") {
+      console.warn(`[FileStore] Notice: Unable to write to ${path.basename(filePath)} (read-only filesystem):`, err?.message || err);
+    }
+  }
+}
+
 // Ensure data folder and bootstrapping is done elegantly
 async function initDataStore() {
   try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    
     // Check products
     try {
       await fs.access(PRODUCTS_FILE);
     } catch {
-      await fs.writeFile(PRODUCTS_FILE, JSON.stringify(DEFAULT_PRODUCTS, null, 2), "utf-8");
+      await safeWriteFile(PRODUCTS_FILE, JSON.stringify(DEFAULT_PRODUCTS, null, 2));
     }
 
     // Check context document
     try {
       await fs.access(CONTEXT_FILE);
     } catch {
-      await fs.writeFile(CONTEXT_FILE, DEFAULT_CONTEXT, "utf-8");
+      await safeWriteFile(CONTEXT_FILE, DEFAULT_CONTEXT);
     }
   } catch (err: any) {
-    console.warn("Failed to initialize local filesystem datastore:", err?.message || err);
+    console.warn("Notice: Filesystem data store running in serverless/read-only mode:", err?.message || err);
   }
 }
 
@@ -895,7 +904,7 @@ async function loadProductsFromStore() {
       // If any corrupted or duplicate items were filtered out, or if duplicate IDs were repaired, or if images were updated, write back the cleaned list to products.json
       if (uniqueList.length < list.length || didModifyIds || didModifyImages) {
         console.log(`[Database Cleanup/Image Enrichment] Purged duplicates or enriched images. Saving updated stock list.`);
-        await fs.writeFile(PRODUCTS_FILE, JSON.stringify(uniqueList, null, 2), "utf-8");
+        await safeWriteFile(PRODUCTS_FILE, JSON.stringify(uniqueList, null, 2));
       }
       return uniqueList;
     }
