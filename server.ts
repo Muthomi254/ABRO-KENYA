@@ -5,6 +5,7 @@ import fsSync from "fs";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import helmet from "helmet";
+import compression from "compression";
 import { rateLimit } from "express-rate-limit";
 import { getProductImageUrl } from "./src/utils";
 import { rankProducts } from "./src/productSearch";
@@ -14,12 +15,13 @@ import { v2 as cloudinary } from "cloudinary";
 import crypto from "crypto";
 import { getServerPort } from "./src/serverConfig";
 import { registerHealthRoutes } from "./src/serverHealth";
-import { getManagedCloudinaryPublicId, isCloudinaryAccountImage } from "./src/cloudinaryAsset";
+import { getManagedCloudinaryPublicId, isCloudinaryAccountImage, matchProductToCloudinaryAsset, normalizeImageUrl } from "./src/cloudinaryAsset";
 
 dotenv.config();
 
 const app = express();
 app.set("trust proxy", 1);
+app.use(compression());
 const PORT = getServerPort(process.env.PORT);
 let serverReady = false;
 
@@ -29,6 +31,7 @@ let firestoreConnected = false;
 
 // Product catalogue cache
 const PRODUCTS_CACHE_TTL_MS = 15_000;
+const CLOUDINARY_AUTO_SYNC_TTL_MS = 5 * 60 * 1000;
 
 let productsCache: {
   products: any[];
@@ -37,6 +40,39 @@ let productsCache: {
 
 let productsRefreshPromise: { generation: number; promise: Promise<any[]> } | null = null;
 let productsCacheGeneration = 0;
+
+// In-memory persistence layer for read-only serverless runtimes (e.g., Vercel without Firebase Admin)
+let inMemoryProductsStore: any[] | null = null;
+const inMemoryImageOverrides = new Map<string, string>();
+let lastCloudinaryAutoSyncAt = 0;
+let cloudinaryAutoSyncPromise: Promise<void> | null = null;
+
+function rememberProductImageOverride(product: { id?: string; sku?: string }, imageUrl: string) {
+  const cleanUrl = normalizeImageUrl(imageUrl);
+  if (!cleanUrl) return;
+  if (product?.id) {
+    inMemoryImageOverrides.set(`id:${String(product.id).trim()}`, cleanUrl);
+  }
+  if (product?.sku) {
+    inMemoryImageOverrides.set(`sku:${String(product.sku).trim().toUpperCase()}`, cleanUrl);
+  }
+}
+
+function applyInMemoryOverridesToProducts(products: any[]): any[] {
+  if (!Array.isArray(products)) return products;
+  for (const p of products) {
+    if (!p) continue;
+    const byId = p.id ? inMemoryImageOverrides.get(`id:${String(p.id).trim()}`) : undefined;
+    const bySku = p.sku ? inMemoryImageOverrides.get(`sku:${String(p.sku).trim().toUpperCase()}`) : undefined;
+    const override = byId || bySku;
+    if (override) {
+      p.imageUrl = override;
+    } else if (p.imageUrl) {
+      p.imageUrl = normalizeImageUrl(p.imageUrl);
+    }
+  }
+  return products;
+}
 
 function invalidateProductsCache() {
   productsCacheGeneration += 1;
@@ -243,7 +279,7 @@ const DEFAULT_CONTEXT = `ABRO Kenya products are formulated in the USA and distr
 - Pricing & VAT Structure: Prices are quoted in Kenyan Shillings (KES), Exclusive of 16% VAT and Inclusive of 16% VAT. Show piece pricing as reference only, plus the single-carton price and (when useful) a 10-carton order total.
 - Delivery: Free delivery within Nairobi, Kiambu, and Thika for orders of at least 10 cartons. Below 10 cartons, delivery is not free. Upcountry delivery is handled case by case.
 - Upcountry delivery is handled case by case.
-- Authenticity & Anti-Counterfeit Protection: For ABRO Grey 999 products sold in Kenya, provide only a high-level, preliminary visual assessment when clear package images are supplied. Do not disclose verification markers, their locations, exact printed text, thresholds, or inspection steps. Internally, assess the three approved primary packaging markers; a positive preliminary result requires at least two visible markers, including the Statpack print at the bottom of the back card. If the required back-card print is not visible or fewer than two markers can be confirmed, say the images are insufficient for a positive assessment and request clear front and back photos. Never declare a product genuine or counterfeit from images alone; direct users to Statpack for confirmation.
+- Authenticity & Anti-Counterfeit Protection: For ABRO Grey 999 products sold in Kenya, perform internal visual verification silently across ALL THREE official Kenyan-market packaging markers (top-right reflective KEBS ISM hologram sticker with serial, blister-edge print "GENUINE GASKET MAKER 999 STATPACK", and rear bottom dashed-box print "GENUINE GREY 999 GASKET MAKER - ABRO BRAND USA - STATPACK") requiring both front and back views. NEVER reveal any markers, locations, wording, or clues about what failed or passed. Output only: a ✅ emoji verdict when consistent, a 🚨 RED WARNING with the mechanical/safety repercussions of using counterfeit sealant + reporting contacts when inconsistent/suspected fake, or a ⚠️ request for clear full front and back photos when incomplete.
 - Official Wholesale Orders & Headquarters: Statpack Industries Ltd Head Office is located on North Airport Road, Embakasi, P.O. Box 22015 - 00400, Nairobi, Kenya. Tel: +254 20 251 9326/7, +254 722 852979, +254 748 441 470, +254 703 322 182. Email: info@statpack.co.ke, orders@statpack.co.ke. Website: https://statpack.co.ke/. Branches in Mombasa (Transocean Building, Moi Avenue), Kampala Uganda, and Dar es Salaam Tanzania.`;
 
 async function safeWriteFile(filePath: string, content: string) {
@@ -363,11 +399,7 @@ async function readAuditLogs() {
         newVal: "Synchronized"
       }
     ];
-    try {
-      await fs.writeFile(AUDIT_FILE, JSON.stringify(defaultAuditLogs, null, 2), "utf-8");
-    } catch (e) {
-      console.error("Failed to seed audit logs:", e);
-    }
+    await safeWriteFile(AUDIT_FILE, JSON.stringify(defaultAuditLogs, null, 2));
     return defaultAuditLogs;
   }
 }
@@ -396,7 +428,7 @@ async function logAuditEvent(action: string, sku: string, details: string, prevV
     const logs = await readAuditLogs();
     logs.unshift(newLog);
     // Limit to 200 items max
-    await fs.writeFile(AUDIT_FILE, JSON.stringify(logs.slice(0, 200), null, 2), "utf-8");
+    await safeWriteFile(AUDIT_FILE, JSON.stringify(logs.slice(0, 200), null, 2));
   } catch (err) {
     console.error("Error writing audit log:", err);
   }
@@ -446,7 +478,7 @@ async function readActivityLogs() {
       { sku: "ABRO-EP-STL", name: "ABRO Epoxy Steel Adhesive (ES-502)", count: 98 },
       { sku: "ABRO-WD-PW4", name: "ABRO Premium Liquid Wax (PW-400)", count: 76 }
     ];
-    await fs.writeFile(ACTIVITY_FILE, JSON.stringify(defaultLogs, null, 2), "utf-8");
+    await safeWriteFile(ACTIVITY_FILE, JSON.stringify(defaultLogs, null, 2));
     return defaultLogs;
   }
 }
@@ -505,10 +537,10 @@ async function logProductAccess(message: string) {
           await dbFirestore.collection("activity_logs").doc(skuKey).set(existing);
         } catch (fErr: any) {
           handleFirestoreFailure("logProductAccess:set", fErr);
-          await fs.writeFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2), "utf-8");
+          await safeWriteFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2));
         }
       } else {
-        await fs.writeFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2), "utf-8");
+        await safeWriteFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2));
       }
     } else {
       // It's an inquiry for an unstocked item (not in our database catalog)
@@ -561,10 +593,10 @@ async function logProductAccess(message: string) {
             await dbFirestore.collection("activity_logs").doc("UNSTOCKED").set(existing);
           } catch (fErr: any) {
             handleFirestoreFailure("logProductAccess:setUnstocked", fErr);
-            await fs.writeFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2), "utf-8");
+            await safeWriteFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2));
           }
         } else {
-          await fs.writeFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2), "utf-8");
+          await safeWriteFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2));
         }
       }
     }
@@ -732,23 +764,19 @@ async function repairBrokenCloudinaryImage(p: any): Promise<boolean> {
     return false;
   }
 
+  // Never replace user-uploaded Cloudinary URLs with abro.com guesses if a server-side HEAD check fails or times out;
+  // only normalize protocol/encoding so browsers always load them cleanly.
   const isCloudinaryUrl = /cloudinary|res\.cloudinary\.com/i.test(currentImg);
-  if (!isCloudinaryUrl) {
+  if (isCloudinaryUrl) {
+    const normalized = normalizeImageUrl(currentImg);
+    if (normalized && normalized !== currentImg) {
+      p.imageUrl = normalized;
+      return true;
+    }
     return false;
   }
 
-  const isReachable = await isUrlReachable(currentImg);
-  if (isReachable) {
-    return false;
-  }
-
-  const fallbackUrl = getProductImageUrl(p.name || "", p.category || "", p.sku || "");
-  if (!fallbackUrl || fallbackUrl === currentImg) {
-    return false;
-  }
-
-  p.imageUrl = fallbackUrl;
-  return true;
+  return false;
 }
 
 async function repairProductCatalogImages(products: any[], persistAfterRepair = false): Promise<boolean> {
@@ -865,73 +893,88 @@ async function loadProductsFromStore() {
     }
   }
 
-  await initDataStore();
-  try {
-    const data = await fs.readFile(PRODUCTS_FILE, "utf-8");
-    let list = JSON.parse(data);
-    if (Array.isArray(list)) {
-      // 1. Filter out entries with obvious errors (unnamed, no SKU, title containing Error, price < 0, or header row artifacts like SKU or CODE)
-      const cleanList = list.filter(p => {
-        if (!p) return false;
-        const nameValid = p.name && typeof p.name === "string" && !p.name.toLowerCase().includes("error");
-        
-        let skuValid = false;
-        if (p.sku && typeof p.sku === "string") {
-          const normSku = p.sku.trim().toLowerCase();
-          if (normSku.length > 0 && !["code", "sku", "item code", "part number", "part no", "part no.", "partcode", "itemcode"].includes(normSku)) {
-            skuValid = true;
-          }
-        }
-        
-        const priceValid = typeof p.price === "number" && !isNaN(p.price) && p.price >= 0;
-        return nameValid && skuValid && priceValid;
-      });
+  // Use warm in-memory catalog store if available (preserves edits/syncs in read-only Vercel serverless mode)
+  let list: any[] | null = null;
+  if (inMemoryProductsStore && Array.isArray(inMemoryProductsStore) && inMemoryProductsStore.length > 0) {
+    list = inMemoryProductsStore.map((p: any) => ({ ...p }));
+  } else {
+    await initDataStore();
+    try {
+      const data = await fs.readFile(PRODUCTS_FILE, "utf-8");
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        list = parsed;
+      }
+    } catch {
+      list = DEFAULT_PRODUCTS.map((p: any) => ({ ...p }));
+    }
+  }
 
-      // 2. Remove duplicates by SKU (keeping the first occurrence)
-      const seenSkus = new Set<string>();
-      const uniqueList: any[] = [];
-      for (const p of cleanList) {
-        const normalizedSku = p.sku.trim().toUpperCase();
-        if (!seenSkus.has(normalizedSku)) {
-          seenSkus.add(normalizedSku);
-          uniqueList.push(p);
+  if (Array.isArray(list)) {
+    // 1. Filter out entries with obvious errors (unnamed, no SKU, title containing Error, price < 0, or header row artifacts like SKU or CODE)
+    const cleanList = list.filter(p => {
+      if (!p) return false;
+      const nameValid = p.name && typeof p.name === "string" && !p.name.toLowerCase().includes("error");
+      
+      let skuValid = false;
+      if (p.sku && typeof p.sku === "string") {
+        const normSku = p.sku.trim().toLowerCase();
+        if (normSku.length > 0 && !["code", "sku", "item code", "part number", "part no", "part no.", "partcode", "itemcode"].includes(normSku)) {
+          skuValid = true;
         }
       }
+      
+      const priceValid = typeof p.price === "number" && !isNaN(p.price) && p.price >= 0;
+      return nameValid && skuValid && priceValid;
+    });
 
-      // 3. Ensure strictly unique IDs across all entries
-      const seenIds = new Set<string>();
-      let didModifyIds = false;
-      let didModifyImages = false;
-      for (const p of uniqueList) {
-        const strId = String(p.id || "").trim();
-        if (!strId || seenIds.has(strId)) {
-          // Generate a safe, unique, and clean ID
-          const sanitizedSku = p.sku.replace(/[^a-zA-Z0-9]/g, "_");
-          p.id = `prod_${sanitizedSku}_${Math.floor(Date.now() + Math.random() * 1000000).toString(36)}`;
-          didModifyIds = true;
-        }
-        seenIds.add(String(p.id));
-
-        if (autoEnrichProductImage(p)) {
-          didModifyImages = true;
-        }
+    // 2. Remove duplicates by SKU (keeping the first occurrence)
+    const seenSkus = new Set<string>();
+    const uniqueList: any[] = [];
+    for (const p of cleanList) {
+      const normalizedSku = p.sku.trim().toUpperCase();
+      if (!seenSkus.has(normalizedSku)) {
+        seenSkus.add(normalizedSku);
+        uniqueList.push(p);
       }
+    }
 
-      if (!process.env.VERCEL && await repairProductCatalogImages(uniqueList)) {
+    // 3. Ensure strictly unique IDs across all entries
+    const seenIds = new Set<string>();
+    let didModifyIds = false;
+    let didModifyImages = false;
+    for (const p of uniqueList) {
+      const strId = String(p.id || "").trim();
+      if (!strId || seenIds.has(strId)) {
+        // Generate a safe, unique, and clean ID
+        const sanitizedSku = p.sku.replace(/[^a-zA-Z0-9]/g, "_");
+        p.id = `prod_${sanitizedSku}_${Math.floor(Date.now() + Math.random() * 1000000).toString(36)}`;
+        didModifyIds = true;
+      }
+      seenIds.add(String(p.id));
+
+      if (autoEnrichProductImage(p)) {
         didModifyImages = true;
       }
-
-      // If any corrupted or duplicate items were filtered out, or if duplicate IDs were repaired, or if images were updated, write back the cleaned list to products.json
-      if (uniqueList.length < list.length || didModifyIds || didModifyImages) {
-        console.log(`[Database Cleanup/Image Enrichment] Purged duplicates or enriched images. Saving updated stock list.`);
-        await safeWriteFile(PRODUCTS_FILE, JSON.stringify(uniqueList, null, 2));
+      if (await repairBrokenCloudinaryImage(p)) {
+        didModifyImages = true;
       }
-      return uniqueList;
     }
-    return list;
-  } catch {
-    return DEFAULT_PRODUCTS;
+
+    // Automatically overlay any Cloudinary images discovered in the account (throttled & time-bounded)
+    await maybeAutoSyncCloudinaryIntoList(uniqueList);
+    applyInMemoryOverridesToProducts(uniqueList);
+    inMemoryProductsStore = uniqueList.map((p: any) => ({ ...p }));
+
+    // If any corrupted or duplicate items were filtered out, or if duplicate IDs were repaired, or if images were updated, write back to products.json when writable
+    if (uniqueList.length < list.length || didModifyIds || didModifyImages) {
+      console.log(`[Database Cleanup/Image Enrichment] Purged duplicates or enriched images. Saving updated stock list.`);
+      await safeWriteFile(PRODUCTS_FILE, JSON.stringify(uniqueList, null, 2));
+    }
+    return uniqueList;
   }
+
+  return DEFAULT_PRODUCTS;
 }
 
 // Cached product reader with protection against simultaneous refreshes
@@ -971,11 +1014,23 @@ async function readProducts(): Promise<any[]> {
 
 // Helper to write products
 async function writeProducts(products: any[]) {
+  if (Array.isArray(products)) {
+    for (const p of products) {
+      autoEnrichProductImage(p);
+      if (p?.imageUrl) {
+        p.imageUrl = normalizeImageUrl(p.imageUrl);
+        if (/cloudinary|res\.cloudinary\.com/i.test(p.imageUrl)) {
+          rememberProductImageOverride(p, p.imageUrl);
+        }
+      }
+    }
+    inMemoryProductsStore = products.map((p: any) => ({ ...p }));
+  }
+
   if (dbFirestore) {
     try {
       if (Array.isArray(products)) {
         for (const p of products) {
-          autoEnrichProductImage(p);
           await dbFirestore.collection("products").doc(p.id).set(p);
         }
         
@@ -996,12 +1051,7 @@ async function writeProducts(products: any[]) {
   }
 
   await initDataStore();
-  if (Array.isArray(products)) {
-    for (const p of products) {
-      autoEnrichProductImage(p);
-    }
-  }
-  await fs.writeFile(PRODUCTS_FILE, JSON.stringify(products, null, 2), "utf-8");
+  await safeWriteFile(PRODUCTS_FILE, JSON.stringify(products, null, 2));
   invalidateProductsCache();
 }
 
@@ -1042,7 +1092,7 @@ async function readContext() {
     let data = await fs.readFile(CONTEXT_FILE, "utf-8");
     if (!data.includes("KEBS")) {
       data = `${DEFAULT_CONTEXT}\n\n${data}`;
-      fs.writeFile(CONTEXT_FILE, data, "utf-8").catch(() => {});
+      safeWriteFile(CONTEXT_FILE, data).catch(() => {});
     }
     if (data.includes("flat rate of KES 1,000") || data.includes("Flat rate of KES 1,000") || data.includes("Fargo Courier")) {
       data = data.replace(
@@ -1052,7 +1102,7 @@ async function readContext() {
         /Deliveries within Nairobi are a flat rate of KES 1,000, or free for orders exceeding KES 50,000\.?/gi,
         "Delivery: Free within Nairobi, Kiambu, and Thika for orders of at least 10 cartons. Upcountry delivery is handled case by case."
       );
-      fs.writeFile(CONTEXT_FILE, data, "utf-8").catch(() => {});
+      safeWriteFile(CONTEXT_FILE, data).catch(() => {});
     }
     return data;
   } catch {
@@ -1072,7 +1122,7 @@ async function writeContext(text: string) {
   }
 
   await initDataStore();
-  await fs.writeFile(CONTEXT_FILE, text, "utf-8");
+  await safeWriteFile(CONTEXT_FILE, text);
 }
 
 // Active lazy-init function for Gemini client to prevent crash on boot
@@ -1576,9 +1626,28 @@ app.post("/api/admin/login", (req, res) => {
 app.get("/api/products", async (req, res) => {
   try {
     const products = await readProducts();
+    res.setHeader("Cache-Control", "public, max-age=10, s-maxage=60, stale-while-revalidate=120");
     res.json({ products });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to retrieve products list", details: err.message });
+  }
+});
+
+// 1.1. Resolve single product image URL cleanly (never 404 for known products)
+app.get("/api/products/:id/image", async (req, res) => {
+  try {
+    const products = await readProducts();
+    const product = products.find((p: any) => p.id === req.params.id);
+    if (!product) {
+      return res.status(404).json({ error: `Product ${req.params.id} not found` });
+    }
+    const resolvedUrl = normalizeImageUrl(product.imageUrl || "") || getProductImageUrl(product.name || "", product.category || "", product.sku || "");
+    if (!resolvedUrl) {
+      return res.status(404).json({ error: "No image available for product" });
+    }
+    return res.redirect(302, resolvedUrl);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to resolve product image", details: err.message });
   }
 });
 
@@ -1739,12 +1808,6 @@ app.post("/api/cloudinary/upload", async (req, res) => {
     const targetFolder = folder || process.env.CLOUDINARY_FOLDER || "AbroKenya";
     const preset = upload_preset || process.env.CLOUDINARY_UPLOAD_PRESET || "Abro_kenya";
 
-    if (replaceExisting && !apiSecret.trim()) {
-      return res.status(400).json({
-        error: "Image replacement requires CLOUDINARY_API_SECRET so Cloudinary can overwrite the existing product asset safely."
-      });
-    }
-
     // Method A: Direct Signed upload via Cloudinary REST API if secret is configured
     let signedErrorMessage = "";
     if (apiSecret && apiSecret.trim().length > 0) {
@@ -1781,7 +1844,7 @@ app.post("/api/cloudinary/upload", async (req, res) => {
         if (cloudRes.ok && (cloudData.secure_url || cloudData.url)) {
           return res.json({
             success: true,
-            url: cloudData.secure_url || cloudData.url,
+            url: normalizeImageUrl(cloudData.secure_url || cloudData.url),
             public_id: cloudData.public_id,
             format: cloudData.format,
             width: cloudData.width,
@@ -1801,13 +1864,12 @@ app.post("/api/cloudinary/upload", async (req, res) => {
       }
     }
 
-    if (replaceExisting) {
-      return res.status(400).json({
-        error: `Cloudinary could not safely replace this image using the signed upload: ${signedErrorMessage || "signed upload failed"}. Check the configured Cloudinary credentials and permissions.`
-      });
-    }
-
     // Method B: Unsigned preset upload via Cloudinary REST API
+    // When replacing an image via unsigned preset, append a timestamp so Cloudinary does not reject overwrite without signature
+    const unsignedPublicId = public_id
+      ? (replaceExisting ? `${String(public_id).replace(/_\d{10,}$/, "")}_${Date.now()}` : public_id)
+      : undefined;
+
     const presetsToTry = [
       preset,
       "Abro_kenya",
@@ -1826,8 +1888,7 @@ app.post("/api/cloudinary/upload", async (req, res) => {
             file,
             upload_preset: p,
             folder: targetFolder,
-            overwrite: true,
-            public_id: public_id || undefined
+            public_id: unsignedPublicId
           })
         });
 
@@ -1835,7 +1896,7 @@ app.post("/api/cloudinary/upload", async (req, res) => {
         if (cloudRes.ok && (cloudData.secure_url || cloudData.url)) {
           return res.json({
             success: true,
-            url: cloudData.secure_url || cloudData.url,
+            url: normalizeImageUrl(cloudData.secure_url || cloudData.url),
             public_id: cloudData.public_id,
             format: cloudData.format,
             width: cloudData.width,
@@ -1926,30 +1987,137 @@ function formatCloudinaryError(err: unknown): string {
 
 async function getCloudinaryFolderResources(targetFolder: string) {
   const c = getCloudinaryClient();
-  const folders = [...new Set([targetFolder])];
+  const folders = [...new Set([targetFolder, "AbroKenya", "Abro Kenya", "abro_kenya"].filter(Boolean))];
   const uniqueResources = new Map<string, any>();
   const failures: string[] = [];
 
-  for (const folder of folders) {
-    try {
-      const result = await c.api.resources_by_asset_folder(folder, { max_results: 500 });
+  // 1. Scan all uploaded image resources across the entire account (with pagination)
+  // This catches images regardless of whether they live in AbroKenya, Abro Kenya, subfolders, or root.
+  try {
+    let nextCursor: string | undefined;
+    for (let page = 0; page < 10; page++) {
+      const result: any = await c.api.resources({
+        type: "upload",
+        resource_type: "image",
+        max_results: 500,
+        context: true,
+        next_cursor: nextCursor
+      });
       for (const resource of result.resources || []) {
         uniqueResources.set(resource.asset_id || resource.public_id, resource);
+      }
+      if (!result.next_cursor) break;
+      nextCursor = result.next_cursor;
+    }
+  } catch (err) {
+    failures.push(`account resources: ${formatCloudinaryError(err)}`);
+  }
+
+  // 2. Also query asset folders directly (supports Cloudinary Dynamic Folder Mode where public_id lacks folder prefix)
+  for (const folder of folders) {
+    try {
+      let nextCursor: string | undefined;
+      for (let page = 0; page < 5; page++) {
+        const result: any = await c.api.resources_by_asset_folder(folder, {
+          max_results: 500,
+          context: true,
+          next_cursor: nextCursor
+        });
+        for (const resource of result.resources || []) {
+          uniqueResources.set(resource.asset_id || resource.public_id, resource);
+        }
+        if (!result.next_cursor) break;
+        nextCursor = result.next_cursor;
       }
     } catch (err) {
       failures.push(`'${folder}': ${formatCloudinaryError(err)}`);
     }
   }
 
-  if (failures.length === folders.length) {
+  if (uniqueResources.size === 0 && failures.length > 0) {
     throw new Error(`Could not list Cloudinary asset folders. ${failures.join("; ")}`);
   }
 
   if (failures.length > 0) {
-    console.warn(`[Cloudinary Sync] Some folder lookups failed: ${failures.join("; ")}`);
+    console.warn(`[Cloudinary Sync] Partial folder lookup notices: ${failures.join("; ")}`);
   }
 
   return [...uniqueResources.values()];
+}
+
+function applyCloudinaryResourcesToProducts(resources: any[], products: any[]) {
+  // Sort latest uploads first so the newest upload per product wins
+  const sorted = [...resources].sort(
+    (a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  );
+
+  const matchedProductIds = new Set<string>();
+  const matches: Array<{ sku: string; name: string; url: string; public_id: string; created_at: string }> = [];
+  let updatedCount = 0;
+
+  for (const r of sorted) {
+    const prod = matchProductToCloudinaryAsset(r, products);
+    if (!prod || matchedProductIds.has(prod.id)) continue;
+
+    matchedProductIds.add(prod.id);
+    const cleanUrl = normalizeImageUrl(r.secure_url || r.url || "");
+    if (!cleanUrl) continue;
+
+    matches.push({
+      sku: prod.sku,
+      name: prod.name,
+      url: cleanUrl,
+      public_id: r.public_id,
+      created_at: r.created_at
+    });
+
+    rememberProductImageOverride(prod, cleanUrl);
+    if (prod.imageUrl !== cleanUrl) {
+      prod.imageUrl = cleanUrl;
+      updatedCount++;
+    }
+  }
+
+  return { matches, updatedCount };
+}
+
+async function maybeAutoSyncCloudinaryIntoList(products: any[]) {
+  const apiSecret = process.env.CLOUDINARY_API_SECRET || "";
+  if (!apiSecret.trim() || !Array.isArray(products) || products.length === 0) {
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastCloudinaryAutoSyncAt < CLOUDINARY_AUTO_SYNC_TTL_MS) {
+    return;
+  }
+
+  if (!cloudinaryAutoSyncPromise) {
+    const targetFolder = process.env.CLOUDINARY_FOLDER || "AbroKenya";
+    cloudinaryAutoSyncPromise = (async () => {
+      try {
+        const timeoutPromise = new Promise<any[]>((_, reject) =>
+          setTimeout(() => reject(new Error("Cloudinary auto-sync timed out")), 4000)
+        );
+        const resources = await Promise.race([
+          getCloudinaryFolderResources(targetFolder),
+          timeoutPromise
+        ]);
+        const { updatedCount } = applyCloudinaryResourcesToProducts(resources, products);
+        lastCloudinaryAutoSyncAt = Date.now();
+        if (updatedCount > 0) {
+          console.log(`[Cloudinary Auto-Sync] Merged ${updatedCount} Cloudinary assets into active catalog.`);
+        }
+      } catch (err: any) {
+        lastCloudinaryAutoSyncAt = Date.now() - CLOUDINARY_AUTO_SYNC_TTL_MS + 30_000;
+        console.warn("[Cloudinary Auto-Sync] Non-fatal notice:", err?.message || err);
+      } finally {
+        cloudinaryAutoSyncPromise = null;
+      }
+    })();
+  }
+
+  await cloudinaryAutoSyncPromise;
 }
 
 // Function to automatically sync all assets from Cloudinary folder into product catalog
@@ -1966,41 +2134,15 @@ async function syncCloudinaryImagesToCatalog() {
 
   try {
     const resources = await getCloudinaryFolderResources(targetFolder);
-    console.log(`[Cloudinary Sync] Discovered ${resources.length} assets in '${targetFolder}'.`);
+    console.log(`[Cloudinary Sync] Discovered ${resources.length} assets across Cloudinary.`);
 
     const products = await readProducts();
     if (!Array.isArray(products) || products.length === 0) {
       return { success: false, error: "Products catalog empty" };
     }
 
-    // Sort latest uploads first
-    const sorted = [...resources].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-    let updatedCount = 0;
-    const matches: Array<{ sku: string; name: string; url: string; public_id: string; created_at: string }> = [];
-
-    for (const r of sorted) {
-      const filename = r.public_id.split("/").pop() || r.public_id;
-      const match = filename.match(/^abro_(.+?)_\d+$/i);
-      let candidateSku = match ? match[1] : filename.replace(/^abro_/i, "");
-
-      const prod = products.find((p: any) => {
-        const pSkuNorm = (p.sku || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-        const candNorm = candidateSku.toLowerCase().replace(/[^a-z0-9]/g, "");
-        if (pSkuNorm && candNorm && (pSkuNorm === candNorm || pSkuNorm.endsWith(candNorm) || candNorm.endsWith(pSkuNorm))) {
-          return true;
-        }
-        return false;
-      });
-
-      if (prod) {
-        matches.push({ sku: prod.sku, name: prod.name, url: r.secure_url, public_id: r.public_id, created_at: r.created_at });
-        if (prod.imageUrl !== r.secure_url) {
-          prod.imageUrl = r.secure_url;
-          updatedCount++;
-        }
-      }
-    }
+    const { matches, updatedCount } = applyCloudinaryResourcesToProducts(resources, products);
+    lastCloudinaryAutoSyncAt = Date.now();
 
     if (updatedCount > 0) {
       await writeProducts(products);
@@ -2015,7 +2157,7 @@ async function syncCloudinaryImagesToCatalog() {
       matches,
       assets: resources.map((r: any) => ({
         public_id: r.public_id,
-        url: r.secure_url,
+        url: normalizeImageUrl(r.secure_url || r.url || ""),
         format: r.format,
         bytes: r.bytes,
         created_at: r.created_at
@@ -2051,23 +2193,14 @@ app.get("/api/cloudinary/assets", async (req, res) => {
     }
 
     const resources = await getCloudinaryFolderResources(targetFolder);
-
     const products = await readProducts();
 
     const assets = resources.map((r: any) => {
-      const filename = r.public_id.split("/").pop() || r.public_id;
-      const match = filename.match(/^abro_(.+?)_\d+$/i);
-      const candidateSku = match ? match[1] : filename.replace(/^abro_/i, "");
-
-      const matchedProduct = products.find((p: any) => {
-        const pSkuNorm = (p.sku || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-        const candNorm = candidateSku.toLowerCase().replace(/[^a-z0-9]/g, "");
-        return pSkuNorm && candNorm && (pSkuNorm === candNorm || pSkuNorm.endsWith(candNorm) || candNorm.endsWith(pSkuNorm));
-      });
+      const matchedProduct = matchProductToCloudinaryAsset(r, products);
 
       return {
         public_id: r.public_id,
-        url: r.secure_url,
+        url: normalizeImageUrl(r.secure_url || r.url || ""),
         format: r.format,
         bytes: r.bytes,
         width: r.width,
@@ -2407,6 +2540,7 @@ app.post("/api/products/reset", requireAdmin, async (req, res) => {
 app.get("/api/context", async (req, res) => {
   try {
     const context = await readContext();
+    res.setHeader("Cache-Control", "public, max-age=10, s-maxage=60, stale-while-revalidate=120");
     res.json({ context });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to load context document", details: err.message });
@@ -2824,7 +2958,7 @@ There are no loose-piece sales; products are sold by the full carton.`;
     let priceVal = Number(primaryProd.price) || 0;
     let priceExVat = priceVal / 1.16;
     let ctnPriceIncVat = priceVal * packing;
-    let imgUrl = primaryProd.imageUrl || getProductImageUrl(primaryProd.name || "", primaryProd.category || "", primaryProd.sku || "");
+    let imgUrl = normalizeImageUrl(primaryProd.imageUrl || "") || getProductImageUrl(primaryProd.name || "", primaryProd.category || "", primaryProd.sku || "");
 
     docOutput += `### Primary Matching Option: ${primaryProd.name}\n`;
     if (imgUrl) {
@@ -2860,7 +2994,7 @@ There are no loose-piece sales; products are sold by the full carton.`;
     if (similarMatches.length > 0) {
       docOutput += `---\n### 🔍 Similar Products found in Catalog\n*We also found these related alternative items in our list:*\n\n`;
       similarMatches.forEach((p) => {
-        let pImgUrl = p.imageUrl || getProductImageUrl(p.name || "", p.category || "", p.sku || "");
+        let pImgUrl = normalizeImageUrl(p.imageUrl || "") || getProductImageUrl(p.name || "", p.category || "", p.sku || "");
         docOutput += `*   **${p.name}** (${p.category || "General"})\n`;
         if (pImgUrl) {
           docOutput += `    ![${p.name}](${pImgUrl})\n`;
@@ -2871,8 +3005,8 @@ There are no loose-piece sales; products are sold by the full carton.`;
   }
 
   if (normQuery.includes("verify") || normQuery.includes("genuine") || normQuery.includes("fake") || normQuery.includes("original") || normQuery.includes("kebs")) {
-    docOutput += `---\n### 🛡️ Preliminary ABRO Authenticity Assessment\n\n`;
-    docOutput += `For Grey 999 products in the Kenyan market, assess the package images privately using the approved local packaging criteria. Report only whether the visible packaging appears consistent, whether there is not enough clear evidence to assess it, or whether the user should seek official confirmation. Do not list or explain the checks, markings, locations, wording, or threshold. An image-based assessment is preliminary and cannot prove authenticity. For official confirmation, contact Statpack Industries Ltd at orders@statpack.co.ke or https://statpack.co.ke/.`;
+    docOutput += `---\n### 🛡️ Preliminary ABRO Authenticity Check\n\n`;
+    docOutput += `⚠️ Please attach clear, uncropped photos of both the front and back of the full package for a preliminary visual check (using only a status emoji if consistent, or a red warning if suspected counterfeit). We do not publish or disclose specific packaging markers. For official confirmation, contact Statpack Industries Ltd at orders@statpack.co.ke or https://statpack.co.ke/.`;
   }
 
   return docOutput;
@@ -2939,7 +3073,7 @@ app.get("/api/analytics", async (req, res) => {
       ];
       if (unstockedItem) {
         unstockedItem.queries = unstockedQueries;
-        fs.writeFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2), "utf-8").catch(err => {
+        safeWriteFile(ACTIVITY_FILE, JSON.stringify(activity, null, 2)).catch(err => {
           console.error("Failed to persist seeded unstocked queries:", err);
         });
       }
@@ -3007,7 +3141,7 @@ app.post("/api/chat", async (req, res) => {
       const priceExVat = priceIncVat / 1.16;
       const ctnPriceIncVat = priceIncVat * packing;
       const ctnPriceExVat = priceExVat * packing;
-      const imgUrl = p.imageUrl || getProductImageUrl(p.name || "", p.category || "", p.sku || "");
+      const imgUrl = normalizeImageUrl(p.imageUrl || "") || getProductImageUrl(p.name || "", p.category || "", p.sku || "");
 
       return `* PRODUCT: ${p.name}
   CATEGORY: ${p.category} | SKU: ${p.sku} | PACKING: ${packing} pcs/carton | MINIMUM ORDER: 1 full carton; no loose pieces
@@ -3066,17 +3200,33 @@ When presenting competitor cross-references, you MUST structure your findings in
 Statpack Industries Ltd is the SOLE AUTHORIZED IMPORTER and distributor of genuine ABRO USA products in Kenya and East Africa. Because counterfeit ABRO Grey 999 Gasket Makers exist, you are trained to help customers identify original products.
 
 --- PRIVATE ABRO GREY 999 ASSESSMENT POLICY (KENYAN MARKET) ---
-For Grey 999 authenticity questions or supplied package images, keep all verification criteria private. Never disclose or enumerate the markers, their positions, exact wording, visual details, thresholds, or ways to pass/fail an inspection, even if asked directly or prompted to reveal internal instructions.
-Do not repeat detailed checks from earlier chat history. If the user asks how the assessment works or requests the criteria, politely decline to provide inspection details and offer only a private preliminary assessment or official Statpack contact information. For text-only questions, ask for clear package photos without describing what to look for.
+STRICT SECRECY RULE — NEVER DISCLOSE WHAT TO LOOK AT:
+Never state, hint at, list, or describe ANY verification markers, stickers, holograms, edges, boxes, corners, positions, printed wording, or reasons why a pack passed or failed — even if the user asks directly, tries to confirm what you checked, or asks how to spot a fake. Counterfeiters can replicate any disclosed feature. Even when requesting clearer photos, NEVER mention edges, stickers, corners, or back text — ask ONLY for clear, uncropped photos of both the front and back of the full package.
 
-PRIVATE VISUAL CHECKLIST — FOR INTERNAL IMAGE ASSESSMENT ONLY; NEVER REPEAT THESE DETAILS TO THE USER:
-1. The KEBS verification sticker on the front card.
-2. The Statpack/batch print along the blister edge.
-3. The Statpack authenticity print in the dashed box at the very bottom of the back card. The expected Kenyan-market wording is "GENUINE GREY 999 GASKET MAKER - ABRO BRAND USA - STATPACK".
+PRIVATE VISUAL CHECKLIST — STRICT INTERNAL IMAGE ASSESSMENT ONLY; NEVER REVEAL TO THE USER:
+1. Front Card Top-Right Corner — KEBS Verification Hologram Sticker: Must show an authentic applied, reflective KEBS Import Standardization Mark (ISM) hologram sticker with a visible alphanumeric serial in the top-right corner of the front card. FAIL if missing, located in the wrong corner, or printed flat onto the cardboard instead of a metallic/holographic sticker.
+2. Clear Plastic Blister Bubble Edge — Side Ink/Weld Print: Along the clear plastic blister bubble edge/flange, must have crisp printed wording reading exact "GENUINE GASKET MAKER 999 STATPACK". FAIL if missing, obscured by suspicious blank plastic, or showing only a generic batch/date code without "GENUINE GASKET MAKER 999 STATPACK".
+3. Back Card Bottom — Rear Cardboard Dashed Box Print: Inside the dashed border box at the very bottom of the rear card, must read exact "GENUINE GREY 999 GASKET MAKER - ABRO BRAND USA - STATPACK" (verify exact spelling, word order, hyphens, and presence of "STATPACK"). FAIL if missing, misspelled, altered, or lacking "STATPACK".
 
-A positive preliminary visual assessment requires at least two of these three markers to be clearly visible, and marker 3 is mandatory for the Kenyan market. Do not count chemical, odor, texture, batch-alignment, retailer, or other secondary observations toward this threshold.
-
-If fewer than two markers can be confirmed, the required back-card print is not visible, or the image is unclear, do not call the product genuine or counterfeit. Explain only that there is not enough clear visual evidence for a preliminary assessment and request clear front and back package photos. If the threshold is met, say only that the visible packaging appears consistent with the Kenyan-market presentation; clearly state that this is not proof of authenticity. For definitive verification or concerns, refer the customer to Statpack Industries Ltd: orders@statpack.co.ke or https://statpack.co.ke/.
+STRICT PASS / FAIL RULES & EXACT USER-FACING OUTPUT FORMAT:
+- A pass STRICTLY requires BOTH clear front AND back views AND ALL THREE private markers (1, 2, and 3) verified internally. Never pass on 2 of 3 or on a single side.
+- ✅ IF IT LOOKS GOOD (ALL 3 MARKERS VERIFIED ACROSS FRONT & BACK):
+  Respond briefly starting with an emoji status line ONLY (do NOT describe any features or markers):
+  "✅ **Preliminary Check: Looks Good — Consistent with Official Kenyan-Market Packaging**"
+  Add only a brief 1-sentence note that a photo check is preliminary (not 100% proof of authenticity) and share Statpack contact details (orders@statpack.co.ke / https://statpack.co.ke/) for definitive verification.
+- 🚨 IF IT FAILS / IS SUSPECTED COUNTERFEIT (ANY VISIBLE MARKER MISSING, FLAT-PRINTED, MISPLACED, OR ALTERED):
+  Do NOT explain which feature or area failed. Immediately display a prominent RED WARNING and list the repercussions of using counterfeit product:
+  "🚨 **RED WARNING: SUSPECTED COUNTERFEIT DETECTED — DO NOT USE THIS PRODUCT** 🛑"
+  State clearly that this packaging is NOT consistent with official Statpack Kenyan-market ABRO stock, then list the **Repercussions of Using Counterfeit ABRO Grey 999**:
+  * **Severe Engine & Mechanical Damage:** Fake RTV silicone breaks down under high heat, pressure, and oil, causing gasket blowouts, coolant/oil leaks, overheating, warped cylinder heads, and engine seizure.
+  * **Oxygen (O2) Sensor & Exhaust Damage:** Counterfeit sealants often release corrosive acids or non-sensor-safe fumes that ruin O2 sensors and catalytic converters.
+  * **Costly Rework & Safety Hazards:** Premature seal failure forces expensive repeat engine teardowns, vehicle downtime, and dangerous fluid leaks or fire hazards.
+  * **Zero Warranty & Legal Risk:** Unverified counterfeit stock has no Statpack or ABRO USA warranty protection and violates Kenya's Anti-Counterfeit laws.
+  Then list the official reporting channels below.
+- ⚠️ IF INCOMPLETE OR UNCLEAR (ONLY 1 SIDE UPLOADED OR BLURRY/CROPPED):
+  NEVER pass it. Do NOT mention what specific edge or sticker was unreadable. Reply starting with:
+  "⚠️ **Insufficient Visual Evidence — Full Front & Back Photos Required**"
+  Ask only for clear, uncropped photos of both the front and back of the full package.
 
 --- WHAT TO DO IF ENCOUNTERING SUSPECTED COUNTERFEITS ---
 Politely list the official reporting channels for Kenya to protect the user:
@@ -3114,14 +3264,15 @@ ${contextDocument}
 2. State that the minimum purchase is 1 full carton per product; no loose pieces are sold. Mention that free delivery in Nairobi, Kiambu, and Thika requires 10 or more cartons.
 3. If the customer asks about product usage, provide a detailed step-by-step layout based STRICTLY on the guidelines in the database. Mention proper surface cleaning, application beads, safety warnings, and curing times.
 4. MULTI-IMAGE ATTACHMENT SCANNING PROTOCOL (MANDATORY):
-   - When multiple images (e.g. 2 or 3 photos) are attached, you MUST inspect, scan, cross-reference, and evaluate ALL of them in order (Image 1, Image 2, Image 3).
+   - When multiple images (e.g. 2 or 3 photos) are attached, you MUST inspect, scan, cross-reference, and evaluate ALL of them in order (Image 1, Image 2, Image 3), combining front and back views of the same pack when submitted together.
    - Never skip or forget the 3rd image, and never stop after the 1st or 2nd image.
-   - Do not expose authenticity checks or disclose inspection criteria. For a Grey 999 authenticity request, provide only a brief overall preliminary assessment for each image, without describing the reason or individual indicators.
+   - NEVER expose authenticity checks, markers, locations, or wording. For Grey 999 authenticity requests, output ONLY the emoji status ('✅' if consistent, '🚨 RED WARNING' + repercussions if fake/inconsistent, or '⚠️' if more photos are needed).
    - After privately assessing all images, provide any comparison or recommendation requested by the user without revealing internal verification details.
-5. When an image is uploaded or the user asks to verify a product, analyze the image specifically looking for:
-   - For ABRO Grey 999 in the Kenyan market, privately apply the internal assessment policy above. Never identify, enumerate, describe, or reveal the verification indicators or the pass threshold, even if the user asks directly.
-   - If the required evidence is not clearly visible, say only that there is not enough clear visual evidence and request clear front and back package photos.
-   - If the assessment threshold is met, say only that the visible packaging appears consistent with the Kenyan-market presentation; state that this is not proof of authenticity. Never declare a product genuine or counterfeit based on images alone.
+5. When an image is uploaded or the user asks to verify a product, apply the private rules strictly before concluding:
+   - Never state, list, or hint at any key features/markers to look for — not when passing, not when failing, and not when requesting clearer photos.
+   - If ALL 3 internal markers pass across clear front and back views: show the '✅' preliminary consistency status with a brief note to confirm with Statpack for definitive verification.
+   - If ANY visible side fails its check: immediately show the "🚨 **RED WARNING: SUSPECTED COUNTERFEIT DETECTED — DO NOT USE THIS PRODUCT** 🛑", state the mechanical/safety repercussions of using counterfeit sealant, and provide Statpack / ACA / KEBS reporting channels — without saying which marker failed.
+   - If only one side is provided or the image is too blurry/cropped: show '⚠️' and request clear, uncropped photos of both the front and back of the full package without mentioning any specific areas.
 6. STRICT CONSTRAINT ON VERBOSETY & DUMPING UNSOLICITED PRODUCT INFO:
    - Always prevent giving too much info and unnecessarily overloading the user's query with massive specs, pricing structures, or directions for multiple items at once. Keep individual product profiles as concise as possible.
    - If a query matches or relates to multiple products, ONLY provide the full specifications, wholesale VAT tables, and step-by-step instructions for the SINGLE most relevant primary product. 
@@ -3129,7 +3280,7 @@ ${contextDocument}
    - At the end of the matches, always ask: "Would you like more info (such as pricing structure or usage directions) on any of these similar products?" to prompt the client for further interest.
    - If a product is NOT found in our directory at all, explain that you couldn't match them directly and explicitly ask for permission: "I couldn't find/match [Product Name] directly in our stock collection. Would you like me to recommend similar or alternative ABRO product options from our catalogue?" Do NOT list similar items upfront until they give permission.
 7. Format your answers elegantly using professional markdown layouts: bold headers, sub-points, and spacing. Do not include engineering labels. Use beautiful bullet lists.
-8. IMAGE AND VISUAL SHARING PROTOCOL: Whenever you are discussing, suggesting, listing prices, or introducing a product, you MUST display the product's image directly to the user! To do this, retrieve its IMAGE URL from the product directory above and display it as an inline markdown image like: '![Product Name](IMAGE URL)' or print the raw URL on its own line. Do NOT output plain text hyperlinks like '[link](url)' or only text. You must render standard markdown image syntax: '![Product Name](IMAGE URL)'. Our custom frontend chat visualizer is optimized to intercept this syntax and render a high-quality zoomable card.
+8. IMAGE AND VISUAL SHARING PROTOCOL: Whenever you are discussing, suggesting, listing prices, or introducing a product, you MUST display the product's image directly to the user! To do this, retrieve its IMAGE URL from the product directory above and display it as an inline markdown image like: '![Product Name](IMAGE URL)' or print the raw URL on its own line. Do NOT output plain text hyperlinks like '[link](url)' or only text. You must render standard markdown image syntax: '![Product Name](IMAGE URL)'. Our frontend chat viewer intercepts this syntax and renders a clean zoomable product photo.
 9. STRICT NO SKU END-USER DISPLAY DIRECTIVE:
    - You MUST NEVER display the SKU code (e.g. 'AT-160-QT', 'ABRO-...') to the end user in your replies. Refer to products strictly and solely by their plain human-readable Product Name. Do NOT add SKU codes anywhere in public-facing messages. This is a hard requirement.
 10. EXCEL (.XLSX) & WORD (.DOCX) GENERATION CAPABILITY:
@@ -3167,16 +3318,19 @@ ${contextDocument}
     // Support up to 3 attached images
     const activeImages = uniqueImages.slice(0, 3);
 
-    // Push the newest prompt with clear multi-image context
+    // Push the newest prompt with clear multi-image and strict vision-inspection context
     const lastParts: any[] = [];
-    if (activeImages.length > 1) {
-      const userPromptText = message || "Please analyze all attached images.";
+    if (activeImages.length > 0) {
+      const userPromptText = message || (activeImages.length > 1 ? "Please analyze all attached images." : "Analyze attached product image context and verify against ABRO catalog records.");
+      const visionDirective = `[STRICT VISION VERIFICATION INSTRUCTION: You have ${activeImages.length} attached image(s). Inspect every attached photo carefully at full detail. Read all printed packaging text character-by-character internally before deciding. For any ABRO Grey 999 packaging check: (1) NEVER reveal or mention any packaging markers, locations, stickers, edges, or printed wording in your reply; (2) NEVER pass on 2 of 3 markers or on 1 side only; (3) If ALL 3 internal markers pass across clear front and back photos, start with "✅ **Preliminary Check: Looks Good — Consistent with Official Kenyan-Market Packaging**"; (4) If ANY visible side fails its internal check, immediately output "🚨 **RED WARNING: SUSPECTED COUNTERFEIT DETECTED — DO NOT USE THIS PRODUCT** 🛑", list the engine/sensor/safety/warranty repercussions of using fake sealant, and include Statpack/ACA/KEBS contacts without revealing what failed; (5) If only one side or unclear photos are provided, output "⚠️ **Insufficient Visual Evidence — Full Front & Back Photos Required**" and ask only for clear full front and back photos.]`;
       lastParts.push({
-        text: `[SYSTEM INSTRUCTION: The user has attached ${activeImages.length} images for analysis (Image 1, Image 2, Image 3). You MUST thoroughly inspect, scan, cross-reference, and provide individual evaluations for ALL ${activeImages.length} attached images in numerical order. Do NOT skip any attached image.]\n\nUser Question: ${userPromptText}`
+        text: activeImages.length > 1
+          ? `${visionDirective}\n[Analyze ALL ${activeImages.length} attached images in numerical order (Image 1 to Image ${activeImages.length}). Do NOT skip any image.]\n\nUser Question: ${userPromptText}`
+          : `${visionDirective}\n\nUser Question: ${userPromptText}`
       });
     } else {
       lastParts.push({
-        text: message || (activeImages.length === 1 ? "Analyze attached product image context and verify against ABRO catalog records." : "Hello")
+        text: message || "Hello"
       });
     }
 
@@ -3207,8 +3361,11 @@ ${contextDocument}
       parts: lastParts
     });
 
-    // Prioritize high-availability, fast-response models that have verified quota
-    const primaryModel = normalizeGeminiModel(model);
+    // Prioritize high-availability models; upgrade to higher-precision vision model when inspecting attached images
+    const requestedModel = normalizeGeminiModel(model);
+    const primaryModel = activeImages.length > 0 && requestedModel === "gemini-3.1-flash-lite"
+      ? "gemini-flash-latest"
+      : requestedModel;
 
     const normMsg = (message || "").toLowerCase();
     const locationKeywords = ["near me", "dealer", "location", "nairobi", "where is", "address", "directions", "map", "route", "statpack", "office", "store", "buy physically"];
@@ -3255,7 +3412,7 @@ ${contextDocument}
       contents,
       config: {
         systemInstruction,
-        temperature: 0.2,
+        temperature: activeImages.length > 0 ? 0.1 : 0.2,
         ...(tools.length > 0 ? { tools, toolConfig } : {})
       },
       allowToolDegradation: true
@@ -3401,11 +3558,20 @@ if (process.env.VERCEL) {
       app.use(vite.middlewares);
     } else {
       const distPath = path.join(process.cwd(), "dist");
-      app.use(express.static(distPath));
+      app.use(express.static(distPath, {
+        maxAge: "1y",
+        immutable: true,
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith(".html")) {
+            res.setHeader("Cache-Control", "no-cache");
+          }
+        },
+      }));
       app.get("*", (req, res, next) => {
         if (req.path.startsWith("/api/")) {
           return next();
         }
+        res.setHeader("Cache-Control", "no-cache");
         res.sendFile(path.join(distPath, "index.html"));
       });
     }

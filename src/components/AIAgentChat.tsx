@@ -8,7 +8,8 @@ import {
 import { ChatMessage, Product } from "../types";
 import ZoomableImage from "./ZoomableImage";
 import CarLoader from "./CarLoader";
-import abroKenyaIcon from "../assets/images/abro_kenya_icon_custom_1782232481339.png";
+import { resolveChatImageSources } from "../cloudinaryAsset";
+import abroKenyaIcon from "../assets/images/abro_kenya_icon_custom_1782232481339.webp";
 import { 
   generateCatalogExcel, 
   generateCatalogWord, 
@@ -1149,33 +1150,49 @@ export default function AIAgentChat({
         cleanLine = trimmed.substring(2);
       }
 
-      // Check if line contains any markdown image, markdown image link, or standalone image URLs (e.g. .jpg, .png)
-      // Extract matches and non-matches sequentially
-      const imageRegex = /(!\[.*?\]\(.*?\)|\!?\[.*?\]\(https?:\/\/\S+?\.(?:jpg|jpeg|png|gif|webp|jpeg)\)|https?:\/\/\S+?\.(?:jpg|jpeg|png|gif|webp|jpeg))/gi;
+      // Check if line contains any markdown image, markdown image/Cloudinary link, or standalone image/Cloudinary URLs
+      const imageRegex = /(!\[[^\]]*\]\([^)]+\)|\[[^\]]*\]\((?:https?:\/\/[^\s)]+?\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s)]*)?|https?:\/\/res\.cloudinary\.com\/[^)]+)\)|https?:\/\/[^\s<>"')\]]+?\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>"')\]]*)?|https?:\/\/res\.cloudinary\.com\/[^\s<>"')\]]+)/gi;
       const subParts = cleanLine.split(imageRegex);
 
       const renderedPartElements = subParts.map((subPart, subIdx) => {
         if (!subPart) return null;
 
-        // Check if it's a markdown image or standard markdown link enclosing an image url
+        // Check if it's a markdown image or standard markdown link enclosing an image/Cloudinary URL
         const markdownImageMatch = subPart.match(/^!?\[(.*?)\]\((.*?)\)$/);
         if (markdownImageMatch) {
-          const alt = markdownImageMatch[1] || "ABRO Product View";
-          const url = markdownImageMatch[2];
+          const alt = (markdownImageMatch[1] || "ABRO Product View").trim();
+          const url = markdownImageMatch[2].trim();
+          const { primaryUrl, candidateUrls, matchedProduct } = resolveChatImageSources(alt, url, products);
           return (
-            <div key={subIdx} className="block my-3 max-w-[280px] h-48 rounded-xl overflow-hidden shadow-md relative group border border-slate-200 dark:border-white/10" style={{ contentVisibility: "auto" }}>
-              <ZoomableImage src={url} alt={alt} theme={theme} productName={alt} />
+            <div key={subIdx} className="block my-2.5 w-full max-w-[260px] h-44 rounded-xl overflow-hidden shadow-sm relative group">
+              <ZoomableImage
+                src={primaryUrl || url}
+                extraUrls={candidateUrls}
+                alt={alt}
+                productSku={matchedProduct?.sku}
+                className="w-full h-full object-contain p-1.5"
+                theme={theme}
+                imageOnly
+              />
             </div>
           );
         }
 
-        // Check if it's a standalone image URL
-        const rawUrlMatch = subPart.match(/^https?:\/\/\S+?\.(?:jpg|jpeg|png|gif|webp|jpeg)$/i);
+        // Check if it's a standalone image or Cloudinary URL
+        const rawUrlMatch = subPart.match(/^(?:https?:\/\/\S+?\.(?:jpg|jpeg|png|gif|webp)(?:\?\S*)?|https?:\/\/res\.cloudinary\.com\/\S+)$/i);
         if (rawUrlMatch) {
-          const url = subPart;
+          const { primaryUrl, candidateUrls, matchedProduct } = resolveChatImageSources("", subPart, products);
           return (
-            <div key={subIdx} className="block my-3 max-w-[280px] h-48 rounded-xl overflow-hidden shadow-md relative group border border-slate-200 dark:border-white/10" style={{ contentVisibility: "auto" }}>
-              <ZoomableImage src={url} alt="Sourced Product View" theme={theme} />
+            <div key={subIdx} className="block my-2.5 w-full max-w-[260px] h-44 rounded-xl overflow-hidden shadow-sm relative group">
+              <ZoomableImage
+                src={primaryUrl || subPart}
+                extraUrls={candidateUrls}
+                alt={matchedProduct?.name || "Product Image"}
+                productSku={matchedProduct?.sku}
+                className="w-full h-full object-contain p-1.5"
+                theme={theme}
+                imageOnly
+              />
             </div>
           );
         }
@@ -1193,6 +1210,46 @@ export default function AIAgentChat({
           return part;
         });
       });
+
+      const isRedWarningLine = trimmed.includes("RED WARNING") || trimmed.startsWith("🚨") || trimmed.startsWith("🛑");
+      const isGoodCheckLine = trimmed.startsWith("✅") && /preliminary|consistent|looks good/i.test(trimmed);
+      const isCautionLine = trimmed.startsWith("⚠️") && /insufficient|required|evidence/i.test(trimmed);
+
+      if (isRedWarningLine) {
+        return (
+          <div key={i} className={`my-2 rounded-xl px-3.5 py-2.5 border text-sm md:text-[14px] font-black leading-relaxed ${
+            theme === "dark"
+              ? "bg-rose-500/20 border-rose-500/50 text-rose-200"
+              : "bg-rose-50 border-rose-300 text-rose-800"
+          }`}>
+            {renderedPartElements}
+          </div>
+        );
+      }
+
+      if (isGoodCheckLine) {
+        return (
+          <div key={i} className={`my-2 rounded-xl px-3.5 py-2 border text-sm md:text-[14px] font-bold leading-relaxed ${
+            theme === "dark"
+              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-200"
+              : "bg-emerald-50 border-emerald-300 text-emerald-800"
+          }`}>
+            {renderedPartElements}
+          </div>
+        );
+      }
+
+      if (isCautionLine) {
+        return (
+          <div key={i} className={`my-2 rounded-xl px-3.5 py-2 border text-sm md:text-[14px] font-bold leading-relaxed ${
+            theme === "dark"
+              ? "bg-amber-500/15 border-amber-500/40 text-amber-200"
+              : "bg-amber-50 border-amber-300 text-amber-800"
+          }`}>
+            {renderedPartElements}
+          </div>
+        );
+      }
 
       if (isBullet) {
         return (
@@ -1284,7 +1341,7 @@ export default function AIAgentChat({
 
     try {
       const compressedResults = await Promise.all(
-        filesToProcess.map((file) => compressAndResizeImage(file))
+        filesToProcess.map((file) => compressAndResizeImage(file, 1600, 1600, 0.9))
       );
 
       const validNewImages = compressedResults.filter((img): img is string => typeof img === "string" && img.length > 0);
@@ -1803,14 +1860,26 @@ export default function AIAgentChat({
                   {msg.images && msg.images.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5 justify-end mb-1">
                       {msg.images.map((imgSrc, imgIdx) => (
-                        <div key={imgIdx} className="p-1 rounded-xl bg-slate-950/20 border border-white/10 shadow-sm max-w-[110px] sm:max-w-[130px] inline-block relative group">
-                          <img src={imgSrc} alt={`User Attachment ${imgIdx + 1}`} className="rounded-lg object-contain w-full max-h-20 sm:max-h-24" />
+                        <div key={imgIdx} className="w-28 h-24 rounded-xl overflow-hidden shadow-sm inline-block relative">
+                          <ZoomableImage
+                            src={imgSrc}
+                            alt={`User Attachment ${imgIdx + 1}`}
+                            className="w-full h-full object-contain p-1"
+                            theme={theme}
+                            imageOnly
+                          />
                         </div>
                       ))}
                     </div>
                   ) : msg.image ? (
-                    <div className="p-1 rounded-xl bg-slate-950/20 border border-white/10 shadow-sm max-w-[200px] sm:max-w-[240px] inline-block mb-1 w-full scale-in-center">
-                      <img src={msg.image} alt="User Attachment" className="rounded-lg object-contain w-full max-h-32 sm:max-h-36" />
+                    <div className="w-52 h-36 rounded-xl overflow-hidden shadow-sm inline-block mb-1 scale-in-center">
+                      <ZoomableImage
+                        src={msg.image}
+                        alt="User Attachment"
+                        className="w-full h-full object-contain p-1"
+                        theme={theme}
+                        imageOnly
+                      />
                     </div>
                   ) : null}
                   <div
@@ -1840,9 +1909,13 @@ export default function AIAgentChat({
               </div>
 
               <div className={`flex-1 min-w-0 rounded-2xl p-3.5 sm:p-4.5 border transition-all ${
-                theme === "dark"
-                  ? "bg-[#182333]/90 border-white/10 text-slate-100 shadow-xs"
-                  : "bg-white border-slate-200/90 text-slate-900 shadow-xs"
+                /RED WARNING|SUSPECTED COUNTERFEIT/i.test(msg.text)
+                  ? theme === "dark"
+                    ? "bg-rose-950/35 border-rose-500/50 text-slate-100 shadow-xs"
+                    : "bg-rose-50/40 border-rose-300 text-slate-900 shadow-xs"
+                  : theme === "dark"
+                    ? "bg-[#182333]/90 border-white/10 text-slate-100 shadow-xs"
+                    : "bg-white border-slate-200/90 text-slate-900 shadow-xs"
               }`}>
                 {/* Assistant formatted text content */}
                 <div className="text-[13px] sm:text-[14px] leading-relaxed select-text space-y-1">

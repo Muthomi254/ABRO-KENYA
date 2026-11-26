@@ -1,18 +1,4 @@
-import * as XLSX from "xlsx";
-import { 
-  Document, 
-  Paragraph, 
-  TextRun, 
-  Table, 
-  TableRow, 
-  TableCell, 
-  HeadingLevel, 
-  AlignmentType, 
-  WidthType, 
-  BorderStyle, 
-  Packer,
-  ShadingType
-} from "docx";
+import type * as DocxModule from "docx";
 import { Product } from "./types";
 import { calculatePricing } from "./utils";
 
@@ -37,7 +23,8 @@ function saveAs(blob: Blob, filename: string) {
 /**
  * Exports full or filtered ABRO stock catalog to a multi-sheet Excel (.xlsx) file.
  */
-export function generateCatalogExcel(products: Product[], fileName = "ABRO_Kenya_Official_Price_List") {
+export async function generateCatalogExcel(products: Product[], fileName = "ABRO_Kenya_Official_Price_List") {
+  const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
 
   // --- Sheet 1: Master Price List ---
@@ -117,7 +104,7 @@ export function generateCatalogExcel(products: Product[], fileName = "ABRO_Kenya
     ["Currency & Tax", "All wholesale prices are listed in Kenyan Shillings (KES). Kenya VAT rate is 16%."],
     ["Delivery", "Free delivery within Nairobi, Kiambu, and Thika for orders of at least 10 cartons; orders below 10 cartons are not eligible for free delivery."],
     ["Upcountry", "Delivery is handled in a case by case basis."],
-    ["Counterfeit Protection (Grey 999)", "1. KEBS verification hologram on top right. 2. 'GENUINE GASKET MAKER 999 STATPACK' side weld text. 3. 'ABRO BRAND USA - STATPACK' rear card print."],
+    ["Authenticity & Anti-Counterfeit Notice", "Source exclusively from Statpack Industries Ltd or verified authorized dealers. Use the AI Assistant photo checker or contact Statpack directly for confirmation and ACA/KEBS reporting."],
     ["Direct Order Hotline", "Tel: +254 748 441 470 / +254 732 322 182 | Email: orders@statpack.co.ke | Website: https://statpack.co.ke/"],
     ["Head Office Location", "Statpack Industries Ltd, North Airport Road, Embakasi, P.O. Box 22015 - 00400, Nairobi, Kenya"]
   ];
@@ -136,17 +123,20 @@ export function generateCatalogExcel(products: Product[], fileName = "ABRO_Kenya
  * Exports full or filtered ABRO stock catalog to an official Word (.docx) document.
  */
 export async function generateCatalogWord(products: Product[], documentTitle = "ABRO Kenya Price List & Specifications") {
+  const docx = await import("docx");
+  const { Document, Paragraph, TextRun, Table, TableRow, HeadingLevel, AlignmentType, WidthType, Packer } = docx;
+
   const tableRows = [
     new TableRow({
       tableHeader: true,
       children: [
-        createTableCell("No.", { isHeader: true, width: 800 }),
-        createTableCell("SKU", { isHeader: true, width: 1600 }),
-        createTableCell("Product Name & Specs", { isHeader: true, width: 3800 }),
-        createTableCell("Packing", { isHeader: true, width: 1100 }),
-        createTableCell("Piece Ref. (+VAT)", { isHeader: true, width: 1400 }),
-        createTableCell("Piece Ref. (Incl. VAT)", { isHeader: true, width: 1500 }),
-        createTableCell("Carton (Incl. VAT)", { isHeader: true, width: 1600 })
+        createTableCell(docx, "No.", { isHeader: true, width: 800 }),
+        createTableCell(docx, "SKU", { isHeader: true, width: 1600 }),
+        createTableCell(docx, "Product Name & Specs", { isHeader: true, width: 3800 }),
+        createTableCell(docx, "Packing", { isHeader: true, width: 1100 }),
+        createTableCell(docx, "Piece Ref. (+VAT)", { isHeader: true, width: 1400 }),
+        createTableCell(docx, "Piece Ref. (Incl. VAT)", { isHeader: true, width: 1500 }),
+        createTableCell(docx, "Carton (Incl. VAT)", { isHeader: true, width: 1600 })
       ]
     }),
     ...products.map((p, idx) => {
@@ -155,13 +145,13 @@ export async function generateCatalogWord(products: Product[], documentTitle = "
 
       return new TableRow({
         children: [
-          createTableCell(String(idx + 1), { isEven, width: 800 }),
-          createTableCell(p.sku || "—", { isEven, width: 1600, bold: true }),
-          createTableCell(`${p.name}\n${p.specs ? `Specs: ${p.specs}` : ""}`, { isEven, width: 3800 }),
-          createTableCell(`${pricing.packing || 12} pcs`, { isEven, width: 1100 }),
-          createTableCell(`KES ${pricing.pcExVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, { isEven, width: 1400 }),
-          createTableCell(`KES ${pricing.pcIncVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, { isEven, width: 1500, bold: true }),
-          createTableCell(`KES ${pricing.ctnIncVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, { isEven, width: 1600, bold: true })
+          createTableCell(docx, String(idx + 1), { isEven, width: 800 }),
+          createTableCell(docx, p.sku || "—", { isEven, width: 1600, bold: true }),
+          createTableCell(docx, `${p.name}\n${p.specs ? `Specs: ${p.specs}` : ""}`, { isEven, width: 3800 }),
+          createTableCell(docx, `${pricing.packing || 12} pcs`, { isEven, width: 1100 }),
+          createTableCell(docx, `KES ${pricing.pcExVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, { isEven, width: 1400 }),
+          createTableCell(docx, `KES ${pricing.pcIncVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, { isEven, width: 1500, bold: true }),
+          createTableCell(docx, `KES ${pricing.ctnIncVat.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, { isEven, width: 1600, bold: true })
         ]
       });
     })
@@ -265,30 +255,30 @@ export async function generateCatalogWord(products: Product[], documentTitle = "
             }
           }),
 
-          // Authenticity Guidelines
+          // Authenticity & Anti-Counterfeit Notice
           new Paragraph({
-            text: "HOW TO IDENTIFY 100% GENUINE ABRO PRODUCTS",
+            text: "OFFICIAL SOURCING & ANTI-COUNTERFEIT NOTICE",
             heading: HeadingLevel.HEADING_2,
             spacing: { before: 400, after: 150 }
           }),
           new Paragraph({
             children: [
-              new TextRun({ text: "1. KEBS Verification Hologram: ", bold: true }),
-              new TextRun("Located on the top-right corner of genuine blister packs with a unique alphanumeric code.")
+              new TextRun({ text: "Authorized Distribution: ", bold: true }),
+              new TextRun("Statpack Industries Ltd is the sole authorized importer and distributor of genuine ABRO USA products in Kenya and East Africa. Source stock exclusively from Statpack Industries Ltd or verified authorized distributors.")
             ],
             spacing: { after: 100 }
           }),
           new Paragraph({
             children: [
-              new TextRun({ text: "2. Side Blister Bubble Ink Stamp: ", bold: true }),
-              new TextRun("Features printed text along the clear bubble edge: 'GENUINE GASKET MAKER 999 STATPACK'.")
+              new TextRun({ text: "Risks of Counterfeit Sealants: ", bold: true }),
+              new TextRun("Using counterfeit ABRO Grey 999 gasket maker can cause severe engine and gasket failure, coolant or oil leaks, overheating, oxygen (O2) sensor and catalytic converter damage, costly repeat repairs, and zero warranty protection.")
             ],
             spacing: { after: 100 }
           }),
           new Paragraph({
             children: [
-              new TextRun({ text: "3. Rear Cardboard Base: ", bold: true }),
-              new TextRun("Printed with 'GENUINE GREY 999 GASKET MAKER - ABRO BRAND USA - STATPACK'.")
+              new TextRun({ text: "Verification & Reporting: ", bold: true }),
+              new TextRun("Use our AI Assistant with clear front and back package photos for a preliminary check, or contact Statpack Industries Ltd directly for official confirmation and counterfeit reporting (ACA / KEBS Toll-Free 1545).")
             ],
             spacing: { after: 300 }
           }),
@@ -319,6 +309,7 @@ export async function generateCatalogWord(products: Product[], documentTitle = "
  * Converts any custom text or AI response into a formal corporate Word Document (.docx).
  */
 export async function generateCustomWordReport(title: string, content: string, userQuery?: string) {
+  const { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, Packer } = await import("docx");
   const paragraphs = content.split("\n").map((line) => {
     const trimmed = line.trim();
     if (!trimmed) {
@@ -440,7 +431,8 @@ export async function generateCustomWordReport(title: string, content: string, u
 /**
  * Extracts data/tables from an AI response text or custom rows into an Excel (.xlsx) file.
  */
-export function generateCustomExcelFromText(title: string, text: string, fallbackProducts: Product[] = []) {
+export async function generateCustomExcelFromText(title: string, text: string, fallbackProducts: Product[] = []) {
+  const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
 
   // Check if text has table rows or items
@@ -486,7 +478,12 @@ export function generateCustomExcelFromText(title: string, text: string, fallbac
 }
 
 // Internal helper for docx table cell creation
-function createTableCell(text: string, options: { isHeader?: boolean; isEven?: boolean; width?: number; bold?: boolean } = {}) {
+function createTableCell(
+  docx: typeof DocxModule,
+  text: string,
+  options: { isHeader?: boolean; isEven?: boolean; width?: number; bold?: boolean } = {}
+) {
+  const { TableCell, WidthType, ShadingType, BorderStyle, Paragraph, TextRun } = docx;
   const { isHeader = false, isEven = false, width, bold = false } = options;
 
   return new TableCell({

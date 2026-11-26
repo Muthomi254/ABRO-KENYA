@@ -1,14 +1,23 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { ZoomIn, ZoomOut, Edit, X, Save, Copy, Check, RotateCcw, Image, ExternalLink, Cloud, CheckCircle2, AlertCircle, Camera, FolderOpen, Upload, ShieldCheck, Truck, Package, Info } from "lucide-react";
 import CarLoader from "./CarLoader";
 import { compressAndResizeImage, formatKES, calculatePricing } from "../utils";
 import { saveProductImageOverride } from "../productImageStore";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 import { uploadToCloudinary, isCloudinaryUrl, optimizeImageForUpload } from "../cloudinaryUpload";
+import { getProductImageCandidates, isCloudinaryDeliveryUrl, normalizeImageUrl } from "../cloudinaryAsset";
 import CameraCaptureModal from "./CameraCaptureModal";
-import abroLogo from "../assets/images/abro_logo_1780759135632.png";
+import abroLogo from "../assets/images/abro_logo_1780759135632.webp";
 
 const globalBrokenImages = new Set<string>();
+
+function getInitialCandidateIndex(candidates: string[]): number {
+  const idx = candidates.findIndex(
+    (url) => isCloudinaryDeliveryUrl(url) || !globalBrokenImages.has(url)
+  );
+  return idx === -1 ? candidates.length : idx;
+}
 
 interface ZoomableImageProps {
   src: string;
@@ -22,6 +31,8 @@ interface ZoomableImageProps {
   usageInstructions?: string;
   onSaveUrl?: (newUrl: string) => Promise<void>;
   theme?: "light" | "dark";
+  imageOnly?: boolean;
+  extraUrls?: string[];
 }
 
 export default function ZoomableImage({
@@ -35,15 +46,39 @@ export default function ZoomableImage({
   specs,
   usageInstructions,
   onSaveUrl,
-  theme = "dark"
+  theme = "dark",
+  imageOnly = false,
+  extraUrls
 }: ZoomableImageProps) {
   const [isZoomed, setIsZoomed] = useState(false);
   useBodyScrollLock(isZoomed);
   const [scale, setScale] = useState(1);
-  const [editUrl, setEditUrl] = useState(src);
+  const normalizedSrc = normalizeImageUrl(src) || src;
+  const [editUrl, setEditUrl] = useState(normalizedSrc);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [imgError, setImgError] = useState(() => globalBrokenImages.has(src));
+  const extraUrlsKey = (extraUrls || []).join("|");
+  const candidates = useMemo(() => {
+    const merged: string[] = [];
+    const seen = new Set<string>();
+    const pushUrl = (raw?: string | null) => {
+      const norm = normalizeImageUrl(raw);
+      if (norm && !seen.has(norm)) {
+        seen.add(norm);
+        merged.push(norm);
+      }
+    };
+    pushUrl(src);
+    if (Array.isArray(extraUrls)) {
+      for (const u of extraUrls) pushUrl(u);
+    }
+    for (const c of getProductImageCandidates({ imageUrl: src, sku: productSku })) {
+      pushUrl(c);
+    }
+    return merged;
+  }, [src, productSku, extraUrlsKey]);
+  const [candidateIndex, setCandidateIndex] = useState(() => getInitialCandidateIndex(candidates));
+  const displaySrc = candidateIndex < candidates.length ? candidates[candidateIndex] : abroLogo;
   const [isAutoMatching, setIsAutoMatching] = useState(false);
   const [autoMatchError, setAutoMatchError] = useState("");
   const [autoMatchSuccess, setAutoMatchSuccess] = useState(false);
@@ -120,14 +155,21 @@ export default function ZoomableImage({
       });
 
       if (res.success && res.url) {
+        const cleanUrl = normalizeImageUrl(res.url) || res.url;
         URL.revokeObjectURL(previewUrl);
         uploadPreviewUrlRef.current = null;
-        setEditUrl(res.url);
+        setEditUrl(cleanUrl);
         setCloudinaryUploaded(true);
-        setImgError(false);
+        setCandidateIndex(0);
+        if (productSku) {
+          await saveProductImageOverride(productSku, cleanUrl);
+        }
+        if (productName) {
+          await saveProductImageOverride(productName, cleanUrl);
+        }
         if (onSaveUrl) {
           try {
-            await onSaveUrl(res.url);
+            await onSaveUrl(cleanUrl);
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 3000);
           } catch (autoErr) {
@@ -136,12 +178,6 @@ export default function ZoomableImage({
             setCloudinaryNotice(`Image uploaded, but not saved to the product: ${reason} Use Save to retry.`);
             return;
           }
-        }
-        if (productSku) {
-          await saveProductImageOverride(productSku, res.url);
-        }
-        if (productName) {
-          await saveProductImageOverride(productName, res.url);
         }
       } else {
         setCloudinaryNotice(res.error || "Cloudinary upload notice");
@@ -179,9 +215,9 @@ export default function ZoomableImage({
       URL.revokeObjectURL(uploadPreviewUrlRef.current);
       uploadPreviewUrlRef.current = null;
     }
-    setEditUrl(src);
-    setImgError(globalBrokenImages.has(src));
-  }, [src]);
+    setEditUrl(normalizeImageUrl(src) || src);
+    setCandidateIndex(getInitialCandidateIndex(candidates));
+  }, [src, candidates]);
 
   useEffect(() => () => {
     if (uploadPreviewUrlRef.current) {
@@ -209,16 +245,17 @@ export default function ZoomableImage({
     if (!onSaveUrl) return;
     setIsSaving(true);
     setCloudinaryNotice(null);
+    const cleanUrl = normalizeImageUrl(editUrl) || editUrl;
     try {
-      await onSaveUrl(editUrl);
+      await onSaveUrl(cleanUrl);
       if (productSku) {
-        await saveProductImageOverride(productSku, editUrl);
+        await saveProductImageOverride(productSku, cleanUrl);
       }
       if (productName) {
-        await saveProductImageOverride(productName, editUrl);
+        await saveProductImageOverride(productName, cleanUrl);
       }
       setSaveSuccess(true);
-      setImgError(false);
+      setCandidateIndex(0);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err: any) {
       setCloudinaryNotice(err?.message ? `Image was not saved: ${err.message}` : "Image was not saved. Check the server connection and try again.");
@@ -262,26 +299,40 @@ export default function ZoomableImage({
         onClick={() => {
           setIsZoomed(true);
           setScale(1);
+          setPanOffset({ x: 0, y: 0 });
         }}
-        className={`relative group/thumb cursor-pointer w-full h-full overflow-hidden rounded-lg transition-colors border ${
-          theme === "dark" 
-            ? "bg-slate-900 border-white/5 hover:border-indigo-500/40" 
-            : "bg-slate-100 border-slate-200 hover:border-[#0081c6]/40"
+        className={`relative group/thumb cursor-pointer w-full h-full overflow-hidden rounded-xl transition-colors border ${
+          imageOnly
+            ? theme === "dark"
+              ? "bg-slate-900/80 border-white/10 hover:border-emerald-400/50"
+              : "bg-white border-slate-200 hover:border-[#00609C]/40"
+            : theme === "dark" 
+              ? "bg-slate-900 border-white/5 hover:border-indigo-500/40" 
+              : "bg-slate-100 border-slate-200 hover:border-[#0081c6]/40"
         }`}
       >
         <img
-          src={imgError ? abroLogo : src}
+          src={displaySrc}
           alt={alt}
-          loading="lazy"
+          loading={imageOnly ? "eager" : "lazy"}
           decoding="async"
           className={`${className} transform-gpu will-change-transform transition-transform duration-200 ease-out group-hover/thumb:scale-105`}
           referrerPolicy="no-referrer"
-          onError={(e) => { 
-            const target = e.currentTarget as HTMLImageElement;
-            target.onerror = null; 
-            target.src = abroLogo; 
-            globalBrokenImages.add(src);
-            setImgError(true);
+          onError={() => {
+            if (displaySrc !== abroLogo && !isCloudinaryDeliveryUrl(displaySrc)) {
+              globalBrokenImages.add(displaySrc);
+            }
+            setCandidateIndex((prev) => {
+              let next = prev + 1;
+              while (
+                next < candidates.length &&
+                !isCloudinaryDeliveryUrl(candidates[next]) &&
+                globalBrokenImages.has(candidates[next])
+              ) {
+                next += 1;
+              }
+              return next;
+            });
           }}
         />
         {/* Interactive Magnifying Glass Indicator on hover */}
@@ -294,8 +345,107 @@ export default function ZoomableImage({
         </div>
       </div>
 
-      {/* Lightbox Screen Portal */}
-      {isZoomed && (
+      {/* Image-Only Pop-On Lightbox (used in AI Chat: no product card details) */}
+      {isZoomed && imageOnly && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-150"
+          id="chat-image-pop-lightbox"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="absolute inset-0 cursor-default"
+            onClick={() => setIsZoomed(false)}
+          />
+
+          <div className="relative z-10 max-w-[92vw] max-h-[90vh] flex flex-col items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setIsZoomed(false)}
+              className="fixed top-4 right-4 z-30 p-2.5 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-white/20 text-white shadow-xl transition-all cursor-pointer"
+              title="Close Image (ESC)"
+              aria-label="Close Image"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              onDoubleClick={handleDoubleClick}
+              className={`flex items-center justify-center overflow-hidden rounded-2xl p-3 sm:p-5 bg-white/95 dark:bg-slate-900/95 border border-white/15 shadow-2xl select-none ${
+                scale > 1 ? (isDragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in"
+              }`}
+              title={scale > 1 ? "Drag to pan • Double-click to reset" : "Double-click to zoom"}
+            >
+              <img
+                src={displaySrc}
+                alt={alt}
+                style={{
+                  transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0) scale(${scale})`,
+                  touchAction: scale > 1 ? "none" : "auto"
+                }}
+                className="max-w-[85vw] max-h-[75vh] object-contain transition-transform duration-150 ease-out select-none pointer-events-none"
+                referrerPolicy="no-referrer"
+                onError={() => {
+                  if (displaySrc !== abroLogo && !isCloudinaryDeliveryUrl(displaySrc)) {
+                    globalBrokenImages.add(displaySrc);
+                  }
+                  setCandidateIndex((prev) => prev + 1);
+                }}
+              />
+            </div>
+
+            <div className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-white/15 text-white shadow-xl">
+              <button
+                type="button"
+                onClick={() => setScale((prev) => {
+                  const next = Math.max(0.75, Number((prev - 0.25).toFixed(2)));
+                  if (next === 1) setPanOffset({ x: 0, y: 0 });
+                  return next;
+                })}
+                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                title="Zoom Out"
+                aria-label="Zoom Out"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-mono font-bold px-2 min-w-[48px] text-center text-emerald-400">
+                {Math.round(scale * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setScale((prev) => Math.min(3.5, Number((prev + 0.25).toFixed(2))))}
+                className="p-1.5 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                title="Zoom In"
+                aria-label="Zoom In"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              {scale !== 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScale(1);
+                    setPanOffset({ x: 0, y: 0 });
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                  title="Reset Zoom"
+                  aria-label="Reset Zoom"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Lightbox Screen Portal (Admin / Inspector mode with full details & editor) */}
+      {isZoomed && !imageOnly && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-955/80 backdrop-blur-md animate-in fade-in duration-200"
           id="photo-zoom-lightbox"
@@ -371,7 +521,7 @@ export default function ZoomableImage({
                 </div>
 
                 <img
-                  src={imgError ? abroLogo : src}
+                  src={displaySrc}
                   alt={alt}
                   style={{ 
                     transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0) scale(${scale})`,
@@ -379,12 +529,21 @@ export default function ZoomableImage({
                   }}
                   className="max-w-full max-h-[360px] md:max-h-[460px] object-contain transition-transform duration-150 ease-out flex-shrink-0 filter drop-shadow-xl select-none pointer-events-none"
                   referrerPolicy="no-referrer"
-                  onError={(e) => { 
-                    const target = e.currentTarget as HTMLImageElement;
-                    target.onerror = null; 
-                    target.src = abroLogo; 
-                    globalBrokenImages.add(src);
-                    setImgError(true);
+                  onError={() => {
+                    if (displaySrc !== abroLogo && !isCloudinaryDeliveryUrl(displaySrc)) {
+                      globalBrokenImages.add(displaySrc);
+                    }
+                    setCandidateIndex((prev) => {
+                      let next = prev + 1;
+                      while (
+                        next < candidates.length &&
+                        !isCloudinaryDeliveryUrl(candidates[next]) &&
+                        globalBrokenImages.has(candidates[next])
+                      ) {
+                        next += 1;
+                      }
+                      return next;
+                    });
                   }}
                 />
               </div>
@@ -723,13 +882,13 @@ export default function ZoomableImage({
                               const data = await response.json();
                               const finalUrl = data.verified_image_url || data.product_image_url;
                               if (finalUrl) {
-                                setEditUrl(finalUrl);
+                                setEditUrl(normalizeImageUrl(finalUrl) || finalUrl);
                                 setMatchDetails({
                                   method: data.retrieval_method || "Predicted CDN",
                                   slug: data.generated_slug || "N/A"
                                 });
                                 setAutoMatchSuccess(true);
-                                setImgError(false);
+                                setCandidateIndex(0);
                                 setTimeout(() => setAutoMatchSuccess(false), 8000);
                               } else {
                                 throw new Error("Could not find matching image asset");

@@ -1,7 +1,7 @@
 import React from "react";
 import statpackLogo from "../assets/images/Statpack logo.png";
-import abroLogo from "../assets/images/abro_logo_1780759135632.png";
-import abroKenyaIcon from "../assets/images/abro_kenya_icon_custom_1782232481339.png";
+import abroLogo from "../assets/images/abro_logo_1780759135632.webp";
+import abroKenyaIcon from "../assets/images/abro_kenya_icon_custom_1782232481339.webp";
 
 export function AbroKenyaCompanionIcon({ className = "h-8" }: { className?: string }) {
   return (

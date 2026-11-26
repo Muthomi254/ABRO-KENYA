@@ -5,10 +5,27 @@ import { useBodyScrollLock } from "../useBodyScrollLock";
 import ZoomableImage from "./ZoomableImage";
 import { generateCatalogExcel, generateCatalogWord } from "../documentGenerator";
 import { calculatePricing, formatKES } from "../utils";
-import abroLogo from "../assets/images/abro_logo_1780759135632.png";
+import { getCloudinaryThumbnailUrl, getProductImageCandidates, isCloudinaryDeliveryUrl } from "../cloudinaryAsset";
+import abroLogo from "../assets/images/abro_logo_1780759135632.webp";
 import statpackLogo from "../assets/images/Statpack logo.png";
 
 const catalogBrokenUrls = new Set<string>();
+
+function escapeHtml(value?: string | null): string {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function getInitialCandidateIndex(candidates: string[]): number {
+  const index = candidates.findIndex(
+    (url) => isCloudinaryDeliveryUrl(url) || !catalogBrokenUrls.has(url)
+  );
+  return index === -1 ? candidates.length : index;
+}
 
 interface CatalogProductImageProps {
   product: Product;
@@ -27,19 +44,34 @@ function CatalogProductImage({
   imageClassName = "w-full h-full object-contain",
   showZoomBadge = true,
 }: CatalogProductImageProps) {
-  const imgSrc = product.imageUrl || `/api/products/${product.id}/image`;
-  const [hasError, setHasError] = useState(() => catalogBrokenUrls.has(imgSrc));
+  const candidates = useMemo(
+    () => getProductImageCandidates(product),
+    [product.id, product.sku, product.imageUrl]
+  );
+  const [candidateIndex, setCandidateIndex] = useState(() => getInitialCandidateIndex(candidates));
 
   useEffect(() => {
-    if (imgSrc.includes("cloudinary")) {
-      catalogBrokenUrls.delete(imgSrc);
-    }
-    setHasError(catalogBrokenUrls.has(imgSrc));
-  }, [imgSrc]);
+    setCandidateIndex(getInitialCandidateIndex(candidates));
+  }, [candidates]);
+
+  const currentSrc = candidateIndex < candidates.length ? candidates[candidateIndex] : null;
+  const thumbnailSrc = currentSrc ? getCloudinaryThumbnailUrl(currentSrc, 600) : null;
 
   const handleImageError = () => {
-    catalogBrokenUrls.add(imgSrc);
-    setHasError(true);
+    if (currentSrc && !isCloudinaryDeliveryUrl(currentSrc)) {
+      catalogBrokenUrls.add(currentSrc);
+    }
+    setCandidateIndex((prev) => {
+      let next = prev + 1;
+      while (
+        next < candidates.length &&
+        !isCloudinaryDeliveryUrl(candidates[next]) &&
+        catalogBrokenUrls.has(candidates[next])
+      ) {
+        next += 1;
+      }
+      return next;
+    });
   };
 
   return (
@@ -51,9 +83,9 @@ function CatalogProductImage({
       className={`relative cursor-pointer w-full h-full flex items-center justify-center overflow-hidden rounded-xl group/img ${className}`}
       title={`Click to view & zoom high-res image of ${product.name}`}
     >
-      {!hasError ? (
+      {thumbnailSrc ? (
         <img
-          src={imgSrc}
+          src={thumbnailSrc}
           alt={product.name}
           loading="lazy"
           decoding="async"
@@ -96,6 +128,43 @@ function CatalogProductImage({
         </div>
       )}
     </div>
+  );
+}
+
+function ProductMiniThumbnail({
+  product,
+  className = "w-full h-full object-contain",
+}: {
+  product: Product;
+  className?: string;
+}) {
+  const candidates = useMemo(
+    () => getProductImageCandidates(product),
+    [product.id, product.sku, product.imageUrl]
+  );
+  const [candidateIndex, setCandidateIndex] = useState(() => getInitialCandidateIndex(candidates));
+
+  useEffect(() => {
+    setCandidateIndex(getInitialCandidateIndex(candidates));
+  }, [candidates]);
+
+  const currentSrc = candidateIndex < candidates.length ? candidates[candidateIndex] : abroLogo;
+  const thumbnailSrc = currentSrc === abroLogo ? abroLogo : getCloudinaryThumbnailUrl(currentSrc, 240);
+
+  return (
+    <img
+      src={thumbnailSrc}
+      alt={product.name}
+      loading="lazy"
+      decoding="async"
+      className={className}
+      onError={() => {
+        if (currentSrc !== abroLogo && !isCloudinaryDeliveryUrl(currentSrc)) {
+          catalogBrokenUrls.add(currentSrc);
+        }
+        setCandidateIndex((prev) => prev + 1);
+      }}
+    />
   );
 }
 
@@ -152,9 +221,22 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ startX: number; startY: number; initialX: number; initialY: number } | null>(null);
+  const [isPreparingPdf, setIsPreparingPdf] = useState(false);
+  const [pdfNotice, setPdfNotice] = useState<string | null>(null);
+
+  const lightboxCandidates = useMemo(
+    () => (zoomedProduct ? getProductImageCandidates(zoomedProduct) : []),
+    [zoomedProduct]
+  );
+  const [lightboxCandidateIndex, setLightboxCandidateIndex] = useState(0);
+
+  useEffect(() => {
+    setLightboxCandidateIndex(0);
+  }, [zoomedProduct?.id, zoomedProduct?.sku, zoomedProduct?.imageUrl]);
 
   const handleOpenZoom = (p: Product) => {
     setZoomedProduct(p);
+    setLightboxCandidateIndex(0);
     setLightboxZoomScale(1);
     setPanOffset({ x: 0, y: 0 });
     setLightboxBackdrop("default");
@@ -395,6 +477,18 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
       );
   }, [products, searchTerm, selectedCategory]);
 
+  const PAGE_SIZE = 24;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [searchTerm, selectedCategory]);
+
+  const visibleProducts = useMemo(
+    () => filteredProducts.slice(0, visibleCount),
+    [filteredProducts, visibleCount]
+  );
+
   const toggleExpand = (id: string) => {
     setExpandedProductId(expandedProductId === id ? null : id);
   };
@@ -427,98 +521,192 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
     document.body.removeChild(link);
   };
 
-  // 🖨️ Robust high-fidelity print call with standalone window fallback for sandboxes
-  // 🎨 Robust Visual Product Brochure Export (ABRO + Statpack Logos, no hotline/URL header)
-  // 🎨 Robust Visual Product Brochure Export (ABRO + Statpack Logo images on 3rd line, absolute URL resolution, no browser URL header)
-  const handlePrint = () => {
-    try {
-      const printWindow = window.open("", "_blank");
-      if (printWindow) {
-        const abroLogoUrl = window.location.origin + abroLogo;
-        const statpackLogoUrl = window.location.origin + statpackLogo;
+  // Visual Product Brochure Export via hidden print iframe (avoids popup blockers & never prints live catalog UI)
+  const handlePrint = async () => {
+    if (isPreparingPdf) return;
+    setIsPreparingPdf(true);
+    setPdfNotice(null);
 
-        printWindow.document.write(`
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title></title>
-              <style>
-                @page {
-                  size: A4;
-                  margin: 10mm;
-                }
-                body { font-family: system-ui, -apple-system, sans-serif; padding: 0; margin: 0; color: #111; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                .header { text-align: center; margin-bottom: 16px; border-bottom: 3px solid #00A859; padding-bottom: 10px; }
-                .logo-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
-                .logo-img { height: 28px; object-fit: contain; }
-                .dist-text { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-                .header h1 { font-size: 20px; color: #00609C; margin: 2px 0 2px 0; font-weight: 900; letter-spacing: -0.5px; }
-                .header p { font-size: 11px; color: #555; margin: 0; font-weight: 500; }
-                .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
-                .card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; background: #fff; display: flex; flex-direction: column; justify-content: space-between; page-break-inside: avoid; break-inside: avoid; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-                .card-top { display: flex; gap: 14px; align-items: center; }
-                .img-box { width: 130px; height: 130px; flex-shrink: 0; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f8fafc; padding: 4px; }
-                .img-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
-                .info { flex: 1; }
-                .category { font-size: 10px; text-transform: uppercase; font-weight: bold; color: #00A859; display: block; margin-bottom: 2px; }
-                .title { font-size: 14px; font-weight: 800; color: #0f172a; margin: 0 0 4px 0; line-height: 1.2; }
-                .specs { font-size: 11px; color: #475569; margin: 0; line-height: 1.35; }
-                .page-footer { text-align: center; margin-top: 20px; font-size: 10px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 8px; }
-                @media print {
-                  body { padding: 0; }
-                  .card { break-inside: avoid; page-break-inside: avoid; }
-                }
-              </style>
-            </head>
-            <body>
-              <div class="header">
-                <h1>ABRO® KENYA OFFICIAL PRODUCT BROCHURE</h1>
-                <p>Embakasi Central Depot, Nairobi • Genuine USA Formulation</p>
-                <div class="logo-row" style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px;">
-                  <img src="${abroLogoUrl}" alt="ABRO Logo" style="height: 28px; object-fit: contain;" crossorigin="anonymous" />
-                  <span style="font-size: 11px; font-family: serif; font-style: italic; font-weight: bold; color: #475569; padding: 0 2px;">By</span>
-                  <img src="${statpackLogoUrl}" alt="Statpack Logo" style="height: 24px; object-fit: contain;" crossorigin="anonymous" />
+    const resolveAssetUrl = (assetPath: string) =>
+      assetPath.startsWith("/") ? window.location.origin + assetPath : assetPath;
+
+    const abroLogoUrl = resolveAssetUrl(abroLogo);
+    const statpackLogoUrl = resolveAssetUrl(statpackLogo);
+
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.tabIndex = -1;
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.style.opacity = "0";
+    iframe.style.pointerEvents = "none";
+    iframe.style.visibility = "hidden";
+
+    let cleanupTimer: number | null = null;
+    const originalTitle = document.title;
+    const cleanup = () => {
+      if (cleanupTimer !== null) {
+        window.clearTimeout(cleanupTimer);
+        cleanupTimer = null;
+      }
+      document.title = originalTitle;
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
+
+    try {
+      document.body.appendChild(iframe);
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!iframeDoc || !iframe.contentWindow) {
+        throw new Error("Unable to initialize print frame.");
+      }
+
+      const cardsHtml = filteredProducts
+        .map((p) => {
+          const candidates = getProductImageCandidates(p).map(resolveAssetUrl);
+          const primaryImg = candidates[0] || abroLogoUrl;
+          const fallbackList = candidates.slice(1);
+          fallbackList.push(abroLogoUrl);
+
+          return `
+            <div class="card">
+              <div class="card-top">
+                <div class="img-box">
+                  <img
+                    src="${escapeHtml(primaryImg)}"
+                    alt="${escapeHtml(p.name)}"
+                    data-fallbacks="${escapeHtml(fallbackList.join("|"))}"
+                    onerror="var list=(this.getAttribute('data-fallbacks')||'').split('|').filter(Boolean);if(list.length){this.setAttribute('data-fallbacks',list.slice(1).join('|'));this.src=list[0];}else{this.onerror=null;this.setAttribute('data-settled','1');}"
+                    onload="this.setAttribute('data-settled','1');"
+                  />
+                </div>
+                <div class="info">
+                  <span class="category">${escapeHtml(p.category)}</span>
+                  <h3 class="title">${escapeHtml(p.name)}</h3>
+                  <p class="specs">${escapeHtml(p.specs || "Genuine ABRO high-performance formulation.")}</p>
                 </div>
               </div>
+            </div>
+          `;
+        })
+        .join("");
 
-              <div class="grid">
-                ${filteredProducts.map((p) => {
-                  const rawImg = p.imageUrl || `https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=300&q=80`;
-                  const imgSrc = rawImg.startsWith("/") ? window.location.origin + rawImg : rawImg;
-                  return `
-                    <div class="card">
-                      <div class="card-top">
-                        <div class="img-box">
-                          <img src="${imgSrc}" alt="${p.name}" crossorigin="anonymous" />
-                        </div>
-                        <div class="info">
-                          <span class="category">${p.category}</span>
-                          <h3 class="title">${p.name}</h3>
-                          <p class="specs">${p.specs || "Genuine ABRO high-performance formulation."}</p>
-                        </div>
-                      </div>
-                    </div>
-                  `;
-                }).join("")}
+      iframeDoc.open();
+      iframeDoc.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>ABRO_Kenya_Official_Product_Brochure</title>
+            <style>
+              @page {
+                size: A4;
+                margin: 10mm;
+              }
+              body { font-family: system-ui, -apple-system, sans-serif; padding: 0; margin: 0; color: #111; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .header { text-align: center; margin-bottom: 16px; border-bottom: 3px solid #00A859; padding-bottom: 10px; }
+              .logo-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
+              .header h1 { font-size: 20px; color: #00609C; margin: 2px 0 2px 0; font-weight: 900; letter-spacing: -0.5px; }
+              .header p { font-size: 11px; color: #555; margin: 0; font-weight: 500; }
+              .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+              .card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; background: #fff; display: flex; flex-direction: column; justify-content: space-between; page-break-inside: avoid; break-inside: avoid; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+              .card-top { display: flex; gap: 14px; align-items: center; }
+              .img-box { width: 130px; height: 130px; flex-shrink: 0; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #f8fafc; padding: 4px; }
+              .img-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
+              .info { flex: 1; }
+              .category { font-size: 10px; text-transform: uppercase; font-weight: bold; color: #00A859; display: block; margin-bottom: 2px; }
+              .title { font-size: 14px; font-weight: 800; color: #0f172a; margin: 0 0 4px 0; line-height: 1.2; }
+              .specs { font-size: 11px; color: #475569; margin: 0; line-height: 1.35; }
+              .page-footer { text-align: center; margin-top: 20px; font-size: 10px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+              @media print {
+                body { padding: 0; }
+                .card { break-inside: avoid; page-break-inside: avoid; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>ABRO® KENYA OFFICIAL PRODUCT BROCHURE</h1>
+              <p>Embakasi Central Depot, Nairobi • Genuine USA Formulation</p>
+              <div class="logo-row">
+                <img src="${escapeHtml(abroLogoUrl)}" alt="ABRO Logo" style="height: 28px; object-fit: contain;" />
+                <span style="font-size: 11px; font-family: serif; font-style: italic; font-weight: bold; color: #475569; padding: 0 2px;">By</span>
+                <img src="${escapeHtml(statpackLogoUrl)}" alt="Statpack Logo" style="height: 24px; object-fit: contain;" />
               </div>
+            </div>
 
-              <div class="page-footer">
-                <p><strong>Statpack Industries Ltd</strong> • Official Product Brochure & Specifications • All rights reserved.</p>
-              </div>
+            <div class="grid">
+              ${cardsHtml}
+            </div>
 
-              <script>
-                window.onload = function() {
-                  setTimeout(() => { window.print(); }, 500);
-                };
-              </script>
-            </body>
-          </html>
-        `);
-        printWindow.document.close();
+            <div class="page-footer">
+              <p><strong>Statpack Industries Ltd</strong> • Official Product Brochure &amp; Specifications • All rights reserved.</p>
+            </div>
+          </body>
+        </html>
+      `);
+      iframeDoc.close();
+
+      // Wait for brochure images (including fallback swaps) to finish loading before printing
+      const imgs = Array.from(iframeDoc.images);
+      const waitForImages = Promise.all(
+        imgs.map(
+          (img) =>
+            new Promise<void>((resolve) => {
+              const isSettled = () =>
+                img.getAttribute("data-settled") === "1" ||
+                (img.complete && (img.naturalWidth > 0 || !(img.getAttribute("data-fallbacks") || "").trim()));
+
+              if (isSettled()) {
+                resolve();
+                return;
+              }
+              const onDone = () => {
+                if (isSettled()) {
+                  img.removeEventListener("load", onDone);
+                  img.removeEventListener("error", onDone);
+                  resolve();
+                }
+              };
+              img.addEventListener("load", onDone);
+              img.addEventListener("error", onDone);
+            })
+        )
+      );
+
+      await Promise.race([
+        waitForImages,
+        new Promise<void>((resolve) => window.setTimeout(resolve, 4500)),
+      ]);
+
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+
+      const printWin = iframe.contentWindow;
+      if (!printWin) {
+        throw new Error("Print frame unavailable.");
       }
+
+      document.title = "ABRO_Kenya_Official_Product_Brochure";
+      const onAfterPrint = () => {
+        printWin.removeEventListener("afterprint", onAfterPrint);
+        cleanup();
+      };
+      printWin.addEventListener("afterprint", onAfterPrint);
+      cleanupTimer = window.setTimeout(cleanup, 60000);
+
+      printWin.focus();
+      printWin.print();
     } catch (err) {
       console.error("Brochure print error:", err);
-      alert("Please allow popups to open the visual product brochure.");
+      cleanup();
+      setPdfNotice("Could not open the PDF print dialog in this browser view. Try Word or Excel export, or use Ctrl+P.");
+    } finally {
+      setIsPreparingPdf(false);
     }
   };
 
@@ -668,15 +856,16 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
 
           <button
             onClick={handlePrint}
-            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border shadow-xs transition-all cursor-pointer ${
+            disabled={isPreparingPdf}
+            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border shadow-xs transition-all cursor-pointer disabled:opacity-60 ${
               theme === "dark"
                 ? "bg-white/5 border-white/10 text-slate-300 hover:bg-white/10"
                 : "bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200"
             }`}
-            title="Export / Print Catalog as PDF"
+            title="Export / Print Brochure as PDF"
           >
-            <Printer className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">PDF</span>
+            <Printer className={`w-3.5 h-3.5 ${isPreparingPdf ? "animate-pulse" : ""}`} />
+            <span className="hidden sm:inline">{isPreparingPdf ? "Preparing..." : "PDF"}</span>
           </button>
 
           {/* Active Inquiry Cart Trigger */}
@@ -692,6 +881,23 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
           )}
         </div>
       </div>
+
+      {pdfNotice && (
+        <div className={`px-4 py-2 text-xs flex items-center justify-between gap-2 border-b no-print ${
+          theme === "dark"
+            ? "bg-amber-950/30 border-amber-500/20 text-amber-200"
+            : "bg-amber-50 border-amber-200 text-amber-900"
+        }`}>
+          <span>{pdfNotice}</span>
+          <button
+            type="button"
+            onClick={() => setPdfNotice(null)}
+            className="text-xs font-bold underline cursor-pointer shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Unified Search & Category Filter Strip */}
       <div className={`p-4 border-b flex flex-col gap-3 transition-colors no-print ${
@@ -820,16 +1026,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                       >
                         <div className="flex items-center space-x-2.5 min-w-0">
                           <div className="w-8 h-8 rounded-lg bg-black/10 shrink-0 overflow-hidden border border-black/5 dark:border-white/5 flex items-center justify-center">
-                            <img
-                              src={p.imageUrl || `/api/products/${p.id}/image`}
-                              alt={p.name}
-                              className="w-full h-full object-contain"
-                              onError={(e) => {
-                                const target = e.currentTarget as HTMLImageElement;
-                                target.onerror = null;
-                                target.src = "https://abro.com/wp-content/uploads/2020/07/abro-logo.jpg";
-                              }}
-                            />
+                            <ProductMiniThumbnail product={p} />
                           </div>
                           <div className="min-w-0">
                             <p className="text-xs font-bold truncate">
@@ -916,7 +1113,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
         ) : viewMode === "grid" ? (
           /* Bento-style High-Visibility Product Card Grid */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-            {filteredProducts.map((p) => {
+            {visibleProducts.map((p) => {
               const isExpanded = expandedProductId === p.id;
               const isCompared = compareProducts.some((cp) => cp.id === p.id);
               const isInquiryCart = inquiryCart.some((ip) => ip.id === p.id);
@@ -1110,7 +1307,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
         ) : (
           /* Spacious, Highly Legible List View */
           <div className="space-y-3">
-            {filteredProducts.map((p) => {
+            {visibleProducts.map((p) => {
               const isExpanded = expandedProductId === p.id;
               const isCompared = compareProducts.some((cp) => cp.id === p.id);
               const isInquiryCart = inquiryCart.some((ip) => ip.id === p.id);
@@ -1258,6 +1455,41 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
             })}
           </div>
         )}
+
+        {/* Incremental Catalog Pagination Controls */}
+        {filteredProducts.length > 0 && (
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-3 pt-5 border-t border-slate-200/70 dark:border-white/10">
+            <span className={`text-xs font-semibold ${theme === "dark" ? "text-slate-400" : "text-slate-600"}`}>
+              Showing {visibleProducts.length} of {filteredProducts.length} products
+            </span>
+            {visibleProducts.length < filteredProducts.length && (
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, filteredProducts.length))}
+                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer border shadow-xs ${
+                    theme === "dark"
+                      ? "bg-[#00609C] hover:bg-[#0074bd] text-white border-sky-400/30"
+                      : "bg-[#00A859] hover:bg-[#00924d] text-white border-emerald-500/30"
+                  }`}
+                >
+                  Load {Math.min(PAGE_SIZE, filteredProducts.length - visibleProducts.length)} More
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount(filteredProducts.length)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    theme === "dark"
+                      ? "bg-white/5 hover:bg-white/10 text-slate-200 border-white/15"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+                  }`}
+                >
+                  Show All ({filteredProducts.length})
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Clean Inquiry Notification Pill on mobile only when items are in cart */}
@@ -1306,16 +1538,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                 }`}
               >
                 <div className="w-5 h-5 rounded overflow-hidden shrink-0 bg-transparent">
-                  <img 
-                    src={p.imageUrl || `/api/products/${p.id}/image`} 
-                    alt={p.name} 
-                    className="w-full h-full object-contain" 
-                    onError={(e) => { 
-                      const target = e.currentTarget as HTMLImageElement;
-                      target.onerror = null; 
-                      target.src = 'https://abro.com/wp-content/uploads/2020/07/abro-logo.jpg'; 
-                    }} 
-                  />
+                  <ProductMiniThumbnail product={p} />
                 </div>
                 <span className="truncate max-w-[80px]">{p.sku}</span>
                 <button 
@@ -1414,16 +1637,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                       {/* Column Image & Header */}
                       <div className="flex justify-center mb-4">
                         <div className="w-24 h-24 rounded-2xl overflow-hidden bg-black/5 dark:bg-white/5 border border-slate-100 dark:border-white/5 p-2 flex items-center justify-center relative shadow-sm">
-                          <img 
-                            src={p.imageUrl || `/api/products/${p.id}/image`} 
-                            alt={p.name} 
-                            className="max-w-full max-h-full object-contain" 
-                            onError={(e) => { 
-                              const target = e.currentTarget as HTMLImageElement;
-                              target.onerror = null; 
-                              target.src = 'https://abro.com/wp-content/uploads/2020/07/abro-logo.jpg'; 
-                            }} 
-                          />
+                          <ProductMiniThumbnail product={p} className="max-w-full max-h-full object-contain" />
                         </div>
                       </div>
 
@@ -1618,17 +1832,7 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                   >
                     <div className="flex items-center space-x-3 min-w-0">
                       <div className="w-10 h-10 rounded-lg overflow-hidden bg-black/10 shrink-0 border border-black/5 dark:border-white/5">
-                        <img
-                          src={p.imageUrl && !catalogBrokenUrls.has(p.imageUrl) ? p.imageUrl : abroLogo}
-                          alt={p.name}
-                          className="w-full h-full object-contain"
-                          onError={(e) => {
-                            const target = e.currentTarget as HTMLImageElement;
-                            target.onerror = null;
-                            target.src = abroLogo;
-                            if (p.imageUrl) catalogBrokenUrls.add(p.imageUrl);
-                          }}
-                        />
+                        <ProductMiniThumbnail product={p} />
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold truncate">{p.name}</p>
@@ -1814,18 +2018,21 @@ export default function ClientCatalog({ products, theme = "dark", onAskAgent, on
                   }`} />
                 </div>
 
-                {zoomedProduct.imageUrl && !catalogBrokenUrls.has(zoomedProduct.imageUrl) ? (
+                {lightboxCandidateIndex < lightboxCandidates.length ? (
                   <img
-                    src={zoomedProduct.imageUrl}
+                    src={lightboxCandidates[lightboxCandidateIndex]}
                     alt={zoomedProduct.name}
                     style={{ 
                       transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0) scale(${lightboxZoomScale})`,
                       touchAction: lightboxZoomScale > 1 ? "none" : "auto"
                     }}
                     className="max-w-full max-h-[380px] md:max-h-[500px] object-contain transition-transform duration-150 ease-out origin-center select-none filter drop-shadow-xl pointer-events-none"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = abroLogo;
-                      catalogBrokenUrls.add(zoomedProduct.imageUrl || "");
+                    onError={() => {
+                      const failedUrl = lightboxCandidates[lightboxCandidateIndex];
+                      if (failedUrl && !isCloudinaryDeliveryUrl(failedUrl)) {
+                        catalogBrokenUrls.add(failedUrl);
+                      }
+                      setLightboxCandidateIndex((prev) => prev + 1);
                     }}
                   />
                 ) : (

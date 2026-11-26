@@ -1,18 +1,18 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense, lazy } from "react";
 import { MessageSquare, Settings, Database, Sparkles, Layers, Sliders, RefreshCw, LogIn, HardDrive, Info, Sun, Moon, Compass, ChevronDown, ChevronUp, ArrowUp, Eye, EyeOff, Lock, Unlock, BarChart3, ExternalLink, Minimize2, X } from "lucide-react";
 import { Product } from "./types";
-import AIAgentChat from "./components/AIAgentChat";
-import ProductManager from "./components/ProductManager";
-import ContextDocManager from "./components/ContextDocManager";
-import AdminLoginGate from "./components/AdminLoginGate";
 import ClientCatalog from "./components/ClientCatalog";
 import CarLoader from "./components/CarLoader";
-import DashboardOverview from "./components/DashboardOverview";
 import { calculatePricing, formatKES, getProductImageUrl } from "./utils";
 import { applyPersistentImageOverrides, saveProductImageOverride } from "./productImageStore";
 import { useBodyScrollLock } from "./useBodyScrollLock";
-import ZoomableImage from "./components/ZoomableImage";
 import { CombinedLogo, CorporateHeaderLogos, CorporateFooterLogos, AbroKenyaCompanionIcon } from "./components/BrandLogos";
+
+const AIAgentChat = lazy(() => import("./components/AIAgentChat"));
+const ProductManager = lazy(() => import("./components/ProductManager"));
+const ContextDocManager = lazy(() => import("./components/ContextDocManager"));
+const AdminLoginGate = lazy(() => import("./components/AdminLoginGate"));
+const DashboardOverview = lazy(() => import("./components/DashboardOverview"));
 
 type ActiveTab = "chat" | "catalog" | "dashboard" | "products" | "context" | "login";
 
@@ -795,27 +795,29 @@ export default function App() {
               </div>
             </div>
             {/* AI Assistant Chatbot - Full screen layout */}
-            <AIAgentChat
-              products={products}
-              onQuickSearch={() => setActiveTab("catalog")}
-              theme={theme}
-              externalTriggerQuery={catalogQuery}
-              onClearExternalTrigger={() => setCatalogQuery(undefined)}
-              onUpdateProductImageUrl={async (id, newUrl) => {
-                await handleUpdateProduct(id, { imageUrl: newUrl });
-              }}
-              isExpanded={true}
-              onToggleExpand={() => {
-                setActiveTab("catalog");
-                setIsChatOpen(true);
-                setIsChatExpanded(false);
-              }}
-              onClose={() => {
-                setActiveTab("catalog");
-                setIsChatOpen(false);
-                setIsChatExpanded(false);
-              }}
-            />
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-semibold text-slate-400">Loading AI Assistant...</div>}>
+              <AIAgentChat
+                products={products}
+                onQuickSearch={() => setActiveTab("catalog")}
+                theme={theme}
+                externalTriggerQuery={catalogQuery}
+                onClearExternalTrigger={() => setCatalogQuery(undefined)}
+                onUpdateProductImageUrl={async (id, newUrl) => {
+                  await handleUpdateProduct(id, { imageUrl: newUrl });
+                }}
+                isExpanded={true}
+                onToggleExpand={() => {
+                  setActiveTab("catalog");
+                  setIsChatOpen(true);
+                  setIsChatExpanded(false);
+                }}
+                onClose={() => {
+                  setActiveTab("catalog");
+                  setIsChatOpen(false);
+                  setIsChatExpanded(false);
+                }}
+              />
+            </Suspense>
           </div>
         )}
 
@@ -836,96 +838,104 @@ export default function App() {
 
         {/* Dashboard Overview Screen (Admin Only) */}
         {activeTab === "dashboard" && (
-          !isAdmin ? (
-            <AdminLoginGate onLoginSuccess={handleAdminLogin} theme={theme} />
-          ) : (
-            <div className="w-full flex-1 flex flex-col min-h-0 overflow-y-auto animate-in fade-in duration-200 py-2">
-              <DashboardOverview
-                products={products}
-                theme={theme}
-                onNavigateToCatalog={(query) => {
-                  setCatalogQuery(query);
-                  setActiveTab("catalog");
-                }}
-                onNavigateToProducts={() => {
-                  setActiveTab("products");
-                }}
-              />
-            </div>
-          )
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-semibold text-slate-400">Loading Dashboard...</div>}>
+            {!isAdmin ? (
+              <AdminLoginGate onLoginSuccess={handleAdminLogin} theme={theme} />
+            ) : (
+              <div className="w-full flex-1 flex flex-col min-h-0 overflow-y-auto animate-in fade-in duration-200 py-2">
+                <DashboardOverview
+                  products={products}
+                  theme={theme}
+                  onNavigateToCatalog={(query) => {
+                    setCatalogQuery(query);
+                    setActiveTab("catalog");
+                  }}
+                  onNavigateToProducts={() => {
+                    setActiveTab("products");
+                  }}
+                />
+              </div>
+            )}
+          </Suspense>
         )}
 
         {/* Dynamic Admin Portal Login Screen */}
         {activeTab === "login" && !isAdmin && (
           <div className="w-full flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in duration-200 py-6">
-            <AdminLoginGate onLoginSuccess={handleAdminLogin} theme={theme} />
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-semibold text-slate-400">Loading Admin Gate...</div>}>
+              <AdminLoginGate onLoginSuccess={handleAdminLogin} theme={theme} />
+            </Suspense>
           </div>
         )}
 
         {activeTab === "products" && (
-          !isAdmin ? (
-            <AdminLoginGate onLoginSuccess={handleAdminLogin} theme={theme} />
-          ) : (
-            <div className="space-y-6 animate-in fade-in duration-200">
-              <div className={`space-y-1 p-6 rounded-2xl border shadow-lg backdrop-blur-md transition-colors ${
-                theme === "dark"
-                  ? "bg-[#061e33]/90 border-white/10 text-white"
-                  : "bg-white border-[#00A859]/15 text-slate-800 shadow-emerald-950/5"
-              }`}>
-                <div className="flex items-center space-x-2">
-                  <Database className={`w-5 h-5 ${theme === "dark" ? "text-indigo-400" : "text-[#00A859]"}`} />
-                  <h2 className={`text-base font-bold ${theme === "dark" ? "text-white" : "text-[#016838]"}`}>ABRO Dynamic Catalogue Storage</h2>
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-semibold text-slate-400">Loading Product Manager...</div>}>
+            {!isAdmin ? (
+              <AdminLoginGate onLoginSuccess={handleAdminLogin} theme={theme} />
+            ) : (
+              <div className="space-y-6 animate-in fade-in duration-200">
+                <div className={`space-y-1 p-6 rounded-2xl border shadow-lg backdrop-blur-md transition-colors ${
+                  theme === "dark"
+                    ? "bg-[#061e33]/90 border-white/10 text-white"
+                    : "bg-white border-[#00A859]/15 text-slate-800 shadow-emerald-950/5"
+                }`}>
+                  <div className="flex items-center space-x-2">
+                    <Database className={`w-5 h-5 ${theme === "dark" ? "text-indigo-400" : "text-[#00A859]"}`} />
+                    <h2 className={`text-base font-bold ${theme === "dark" ? "text-white" : "text-[#016838]"}`}>ABRO Dynamic Catalogue Storage</h2>
+                  </div>
+                  <p className={`text-xs leading-relaxed ${theme === "dark" ? "text-slate-405" : "text-slate-650"}`}>
+                    Add new products, delete dead stock, modify specifications, or instantly overwrite any product price. The AI agent immediately updates its recommendations following storage edits.
+                  </p>
                 </div>
-                <p className={`text-xs leading-relaxed ${theme === "dark" ? "text-slate-405" : "text-slate-650"}`}>
-                  Add new products, delete dead stock, modify specifications, or instantly overwrite any product price. The AI agent immediately updates its recommendations following storage edits.
-                </p>
-              </div>
 
-              <ProductManager
-                products={products}
-                onAddProduct={handleAddProduct}
-                onUpdateProduct={handleUpdateProduct}
-                onDeleteProduct={handleDeleteProduct}
-                onResetCatalogue={handleResetCatalogue}
-                onRefreshProducts={fetchData}
-                isLoading={isLoading}
-                theme={theme}
-                adminToken={adminToken}
-              />
-            </div>
-          )
+                <ProductManager
+                  products={products}
+                  onAddProduct={handleAddProduct}
+                  onUpdateProduct={handleUpdateProduct}
+                  onDeleteProduct={handleDeleteProduct}
+                  onResetCatalogue={handleResetCatalogue}
+                  onRefreshProducts={fetchData}
+                  isLoading={isLoading}
+                  theme={theme}
+                  adminToken={adminToken}
+                />
+              </div>
+            )}
+          </Suspense>
         )}
 
         {activeTab === "context" && (
-          !isAdmin ? (
-            <AdminLoginGate onLoginSuccess={handleAdminLogin} theme={theme} />
-          ) : (
-            <div className="space-y-6 animate-in fade-in duration-200">
-              <div className={`space-y-1 p-6 rounded-2xl border shadow-lg backdrop-blur-md transition-colors ${
-                theme === "dark"
-                  ? "bg-[#061e33]/95 border-white/10 text-white"
-                  : "bg-white border-[#00A859]/15 text-slate-800 shadow-emerald-950/5"
-              }`}>
-                <div className="flex items-center space-x-2">
-                  <Settings className={`w-5 h-5 ${theme === "dark" ? "text-indigo-400" : "text-[#00A859]"}`} />
-                  <h2 className={`text-base font-bold ${theme === "dark" ? "text-white" : "text-[#016838]"}`}>Custom Documents, Rule Overrides & Imports</h2>
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-semibold text-slate-400">Loading Context Manager...</div>}>
+            {!isAdmin ? (
+              <AdminLoginGate onLoginSuccess={handleAdminLogin} theme={theme} />
+            ) : (
+              <div className="space-y-6 animate-in fade-in duration-200">
+                <div className={`space-y-1 p-6 rounded-2xl border shadow-lg backdrop-blur-md transition-colors ${
+                  theme === "dark"
+                    ? "bg-[#061e33]/95 border-white/10 text-white"
+                    : "bg-white border-[#00A859]/15 text-slate-800 shadow-emerald-950/5"
+                }`}>
+                  <div className="flex items-center space-x-2">
+                    <Settings className={`w-5 h-5 ${theme === "dark" ? "text-indigo-400" : "text-[#00A859]"}`} />
+                    <h2 className={`text-base font-bold ${theme === "dark" ? "text-white" : "text-[#016838]"}`}>Custom Documents, Rule Overrides & Imports</h2>
+                  </div>
+                  <p className={`text-xs leading-relaxed ${theme === "dark" ? "text-slate-405" : "text-slate-650"}`}>
+                    Upload or paste additional context guidelines for special shop rules, shipping fees, or support hours. Use the intelligent AI parser to convert a raw pricing list directly into structured database records.
+                  </p>
                 </div>
-                <p className={`text-xs leading-relaxed ${theme === "dark" ? "text-slate-405" : "text-slate-650"}`}>
-                  Upload or paste additional context guidelines for special shop rules, shipping fees, or support hours. Use the intelligent AI parser to convert a raw pricing list directly into structured database records.
-                </p>
-              </div>
 
-              <ContextDocManager
-                contextDocument={contextDocument}
-                onSaveContext={handleSaveContext}
-                onBulkAddProducts={handleBulkAddProducts}
-                isLoading={isLoading}
-                theme={theme}
-                adminToken={adminToken}
-                products={products}
-              />
-            </div>
-          )
+                <ContextDocManager
+                  contextDocument={contextDocument}
+                  onSaveContext={handleSaveContext}
+                  onBulkAddProducts={handleBulkAddProducts}
+                  isLoading={isLoading}
+                  theme={theme}
+                  adminToken={adminToken}
+                  products={products}
+                />
+              </div>
+            )}
+          </Suspense>
         )}
 
       </main>
@@ -1060,61 +1070,53 @@ export default function App() {
           aria-label="AI Assistant Window"
         >
           <div className={isChatExpanded ? "w-full h-full flex-1 max-w-7xl mx-auto flex flex-col min-h-0 overflow-hidden rounded-none sm:rounded-2xl border shadow-2xl" : "w-full h-full flex-1 flex flex-col min-h-0 overflow-hidden"}>
-            <AIAgentChat
-              products={products}
-              onQuickSearch={() => {
-                setIsChatExpanded(false);
-                setActiveTab("catalog");
-              }}
-              theme={theme}
-              externalTriggerQuery={catalogQuery}
-              onClearExternalTrigger={() => setCatalogQuery(undefined)}
-              onUpdateProductImageUrl={async (id, newUrl) => {
-                await handleUpdateProduct(id, { imageUrl: newUrl });
-              }}
-              isExpanded={isChatExpanded}
-              onToggleExpand={() => setIsChatExpanded(!isChatExpanded)}
-              onClose={() => {
-                setIsChatOpen(false);
-                setIsChatExpanded(false);
-              }}
-            />
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-semibold text-slate-400">Loading AI Assistant...</div>}>
+              <AIAgentChat
+                products={products}
+                onQuickSearch={() => {
+                  setIsChatExpanded(false);
+                  setActiveTab("catalog");
+                }}
+                theme={theme}
+                externalTriggerQuery={catalogQuery}
+                onClearExternalTrigger={() => setCatalogQuery(undefined)}
+                onUpdateProductImageUrl={async (id, newUrl) => {
+                  await handleUpdateProduct(id, { imageUrl: newUrl });
+                }}
+                isExpanded={isChatExpanded}
+                onToggleExpand={() => setIsChatExpanded(!isChatExpanded)}
+                onClose={() => {
+                  setIsChatOpen(false);
+                  setIsChatExpanded(false);
+                }}
+              />
+            </Suspense>
           </div>
         </aside>
       )}
 
-      {/* Floating Responsive Toggle Button (Always visible text on mobile, expands on hover on desktop) */}
-      {activeTab !== "chat" && (
+      {/* Floating Responsive Open AI Button (Hidden when chat is open since header has top close button) */}
+      {activeTab !== "chat" && !isChatOpen && (
         <button
           id="initiate-ai-chat-btn"
           type="button"
           onClick={() => {
-            setIsChatOpen(!isChatOpen);
+            setIsChatOpen(true);
             setIsChatExpanded(false);
           }}
-          className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex items-center gap-2.5 p-3.5 sm:p-4 rounded-full shadow-2xl border cursor-pointer transition-all duration-300 group select-none shadow-emerald-500/30 ${
-            isChatOpen
-              ? "max-w-[260px] px-5 bg-rose-600 text-white border-rose-400/50 shadow-rose-900/50"
-              : "max-w-[210px] sm:max-w-[56px] sm:hover:max-w-[260px] px-4 py-3.5 sm:px-3.5 sm:py-3.5 sm:hover:px-5 bg-gradient-to-r from-[#00A859] via-[#00bf65] to-[#00609C] text-white border-emerald-400/40 shadow-[0_10px_35px_rgba(0,168,89,0.5)]"
-          }`}
-          title={isChatOpen ? "Close AI Assistant" : "Open ABRO AI Assistant (Catalog & Specs Support)"}
-          aria-label={isChatOpen ? "Close AI Assistant" : "Initiate AI Assistant Chat"}
+          className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex items-center gap-2.5 p-3.5 sm:p-4 rounded-full shadow-2xl border cursor-pointer transition-all duration-300 group select-none shadow-emerald-500/30 max-w-[210px] sm:max-w-[56px] sm:hover:max-w-[260px] px-4 py-3.5 sm:px-3.5 sm:py-3.5 sm:hover:px-5 bg-gradient-to-r from-[#00A859] via-[#00bf65] to-[#00609C] text-white border-emerald-400/40 shadow-[0_10px_35px_rgba(0,168,89,0.5)]"
+          title="Open ABRO AI Assistant (Catalog & Specs Support)"
+          aria-label="Initiate AI Assistant Chat"
         >
           <div className="shrink-0 flex items-center justify-center">
-            {isChatOpen ? (
-              <X className="w-5 h-5 text-white" />
-            ) : (
-              <Sparkles className="w-5 h-5 text-amber-300" />
-            )}
+            <Sparkles className="w-5 h-5 text-amber-300" />
           </div>
-          <div className={`flex flex-col items-start text-left leading-none whitespace-nowrap transition-all duration-300 overflow-hidden ${
-            isChatOpen ? "opacity-100 max-w-[200px]" : "opacity-100 max-w-[150px] sm:opacity-0 sm:max-w-0 sm:group-hover:opacity-100 sm:group-hover:max-w-[200px]"
-          }`}>
+          <div className="flex flex-col items-start text-left leading-none whitespace-nowrap transition-all duration-300 overflow-hidden opacity-100 max-w-[150px] sm:opacity-0 sm:max-w-0 sm:group-hover:opacity-100 sm:group-hover:max-w-[200px]">
             <span className="text-xs sm:text-sm font-black tracking-wide uppercase flex items-center gap-1.5">
-              <span>{isChatOpen ? "Close AI Assistant" : "Ask AI Assistant"}</span>
+              <span>Ask AI Assistant</span>
             </span>
             <span className="text-[10px] opacity-95 font-bold mt-0.5">
-              {isChatOpen ? "Tap to hide chat" : "Product Specs & Pricing"}
+              Product Specs &amp; Pricing
             </span>
           </div>
         </button>

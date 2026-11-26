@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Lock, Eye, EyeOff, AlertCircle, KeyRound, ShieldAlert } from "lucide-react";
 import CarLoader from "./CarLoader";
 // @ts-ignore
-import adminSecShieldImg from "../assets/images/admin_sec_shield_1781288198153.jpg";
+import adminSecShieldImg from "../assets/images/admin_sec_shield_1781288198153.webp";
 
 interface AdminLoginGateProps {
   onLoginSuccess: (token: string) => void;

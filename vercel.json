@@ -7,6 +7,26 @@
       "includeFiles": "data/**"
     }
   },
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/api/(products|context)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=10, s-maxage=60, stale-while-revalidate=120"
+        }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/robots.txt",
